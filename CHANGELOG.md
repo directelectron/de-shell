@@ -36,5 +36,5 @@ diverged.
 - License: MIT (the vendored copies were GPL-3.0-or-later inside SpyDE).
 - Line endings are LF throughout, enforced by `.gitattributes`.
 
-[Unreleased]: https://github.com/CSSFrancis/de-shell/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/CSSFrancis/de-shell/releases/tag/v0.2.0
+[Unreleased]: https://github.com/directelectron/de-shell/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/directelectron/de-shell/releases/tag/v0.2.0

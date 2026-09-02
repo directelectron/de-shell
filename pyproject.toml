@@ -47,10 +47,10 @@ tests = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CSSFrancis/de-shell"
-Repository = "https://github.com/CSSFrancis/de-shell"
-Issues = "https://github.com/CSSFrancis/de-shell/issues"
-Changelog = "https://github.com/CSSFrancis/de-shell/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/directelectron/de-shell"
+Repository = "https://github.com/directelectron/de-shell"
+Issues = "https://github.com/directelectron/de-shell/issues"
+Changelog = "https://github.com/directelectron/de-shell/blob/main/CHANGELOG.md"
 
 # One version, in one place: de_shell.__version__. The release workflow refuses
 # a tag that does not match it.

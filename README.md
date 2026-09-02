@@ -1,7 +1,7 @@
 # DE Shell
 
 [![PyPI](https://img.shields.io/pypi/v/de-shell.svg)](https://pypi.org/project/de-shell/)
-[![CI](https://github.com/CSSFrancis/de-shell/actions/workflows/ci.yml/badge.svg)](https://github.com/CSSFrancis/de-shell/actions/workflows/ci.yml)
+[![CI](https://github.com/directelectron/de-shell/actions/workflows/ci.yml/badge.svg)](https://github.com/directelectron/de-shell/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 The substrate Direct Electron's desktop apps are assembled from: **SpyDE**

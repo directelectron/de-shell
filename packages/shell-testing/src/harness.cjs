@@ -19,7 +19,16 @@
  *      so a backend that dies mid-test dies SILENTLY. The app's log-level env
  *      var makes it tee logging to stderr, which this captures into `logBuffer`.
  */
-const { _electron: electron } = require('@playwright/test')
+// The APP's Playwright, never one found beside this file. This package reaches
+// an app through a symlink into a checkout that may carry its own node_modules
+// (for the shell's typecheck), and Playwright refuses to be loaded twice
+// ("Requiring @playwright/test second time"). Resolving from the working
+// directory — the app's, when its `playwright test` runs — picks the copy the
+// runner already loaded; the fallback is for a bare `node --test` here.
+function appRequire(name) {
+  try { return require(require.resolve(name, { paths: [process.cwd()] })) } catch { return require(name) }
+}
+const { _electron: electron } = appRequire('@playwright/test')
 const { spawnSync } = require('child_process')
 const { mkdtempSync } = require('fs')
 const { join } = require('path')

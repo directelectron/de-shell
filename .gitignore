@@ -1,0 +1,13 @@
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+node_modules/
+dist/
+out/
+build/
+# A library: the apps lock, this does not.
+uv.lock
+package-lock.json
+.DS_Store
+.idea/

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "de-shell"
+version = "0.2.0"
+description = "DE Shell — the Electron + Python substrate SpyDE, Ground Crew and Autopilot are assembled from"
+authors = [{name = "Direct Electron"}]
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.10,<3.14"
+
+# Deliberately tiny. Every dependency added here is one that de-groundcrew and
+# de-autopilot must also install — see the module docstring in de_shell/__init__.
+# In particular: no hyperspy, no dask, no rosettasciio, no pyxem.
+dependencies = [
+    "numpy>=1.20.0",
+    # 0.7.3 for the circle widget's `lock_center`, which Calibrate's FFT ring
+    # needs: the centre is the DC term, and enforcing that from Python cannot
+    # work — the renderer recomputes the drag from its own grab-time snapshot,
+    # so a correction pushed from here is overwritten on the next mousemove.
+    "anyplotlib>=0.7.3",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+tests = [
+    "pytest>=3.6",
+    "pytest-timeout",
+]
+
+[tool.setuptools.packages.find]
+include = ["de_shell*"]
+where = ["."]
+
+[tool.setuptools.package-data]
+de_shell = [
+    "*.yaml",
+    "plotting/toolbars/icons/*.svg",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 120

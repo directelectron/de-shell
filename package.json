@@ -1,0 +1,25 @@
+{
+  "name": "de-shell-workspace",
+  "version": "0.2.0",
+  "private": true,
+  "description": "DE Shell — the Electron + Python substrate SpyDE, Ground Crew and Autopilot are assembled from. The npm packages live in packages/; the Python package (de_shell) is at the root.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "//": "Everything here is a devDependency: the packages ship as SOURCE (main: src/index.ts) and are compiled by the consuming app's bundler, so the shell itself only needs what its typecheck and unit tests import. electron is pinned to the same major the apps use; ELECTRON_SKIP_BINARY_DOWNLOAD=1 skips the runtime download when only the types are wanted.",
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "electron": "^34.0.0",
+    "electron-updater": "^6.8.9",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "typescript": "^5.4.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:unit": "npm run --workspaces --if-present test:unit"
+  }
+}

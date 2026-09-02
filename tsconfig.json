@@ -1,0 +1,16 @@
+{
+  "//": "One config for every package, tests included. The apps compile these same sources under THEIR configs (they alias @de/shell-* to src/index.ts), so what is set here has to be a subset of what they allow: moduleResolution bundler, and .ts extensions in relative imports (the unit tests run under node --test's native type stripping, which resolves relative imports literally).",
+  "include": ["packages/*/src/**/*"],
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  }
+}

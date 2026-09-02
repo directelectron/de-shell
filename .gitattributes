@@ -1,0 +1,6 @@
+# LF everywhere. The three app checkouts this was merged from disagreed
+# (SpyDE's and Ground Crew's copies were CRLF on disk, Autopilot's LF), and
+# a merge that sees every line as changed conflicts on every hunk.
+* text=auto eol=lf
+*.png binary
+*.svg text

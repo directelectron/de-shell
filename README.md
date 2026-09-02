@@ -87,8 +87,9 @@ peer dependencies — react, electron, electron-updater, @playwright/test —
 are the app's to declare; every app already does. The e2e specs take the
 harness from `shell/testing/harness.cjs`.
 
-Autopilot and SpyDE (on its `chore/de-shell-split` branch) are wired this
-way; Ground Crew still carries a copy under its `packages/` and is next.
+Autopilot and SpyDE ([directelectron/spyde#152](https://github.com/directelectron/spyde/pull/152))
+are wired this way, pinned `de-shell>=0.2,<0.3`; Ground Crew still carries a
+copy under its `packages/` and is next.
 
 ## Developing it
 

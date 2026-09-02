@@ -38,6 +38,16 @@ de_shell = [
     "*.yaml",
     "plotting/toolbars/icons/*.svg",
 ]
+# The TypeScript half rides in the wheel (see de_shell/js). Tests included:
+# an app that links the tree gets to run them, and excluding them would be a
+# second list to keep in step.
+"de_shell.js" = [
+    "main/*.ts",
+    "preload/*.ts",
+    "renderer/*.ts",
+    "renderer/*.tsx",
+    "testing/*.cjs",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

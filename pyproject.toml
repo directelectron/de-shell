@@ -42,6 +42,7 @@ de_shell = [
 # an app that links the tree gets to run them, and excluding them would be a
 # second list to keep in step.
 "de_shell.js" = [
+    "package.json",
     "main/*.ts",
     "preload/*.ts",
     "renderer/*.ts",

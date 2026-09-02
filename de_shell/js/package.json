@@ -1,0 +1,5 @@
+{
+  "type": "module",
+  "private": true,
+  "//": "Node loads the .ts files here as ES modules (node --test with native type stripping); without this it guesses per file and warns. harness.cjs says what it is by its extension."
+}

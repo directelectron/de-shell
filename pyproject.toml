@@ -4,15 +4,32 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "de-shell"
-version = "0.2.0"
-description = "DE Shell — the Electron + Python substrate SpyDE, Ground Crew and Autopilot are assembled from"
-authors = [{name = "Direct Electron"}]
-license = {text = "GPL-3.0-or-later"}
-requires-python = ">=3.10,<3.14"
+dynamic = ["version"]
+description = "The Electron + Python desktop-app shell Direct Electron's apps (SpyDE, Ground Crew, Autopilot) are assembled from"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Carter Francis", email = "cartsfrancis@gmail.com"}]
+requires-python = ">=3.10"
+keywords = ["electron", "desktop", "anyplotlib", "electron-microscopy", "direct-electron"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: JavaScript",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 
-# Deliberately tiny. Every dependency added here is one that de-groundcrew and
-# de-autopilot must also install — see the module docstring in de_shell/__init__.
-# In particular: no hyperspy, no dask, no rosettasciio, no pyxem.
+# Deliberately tiny. Every dependency added here is one that every app
+# installs — see the module docstring in de_shell/__init__. In particular: no
+# hyperspy, no dask, no rosettasciio, no pyxem; tests/test_boundary.py enforces it.
 dependencies = [
     "numpy>=1.20.0",
     # 0.7.3 for the circle widget's `lock_center`, which Calibrate's FFT ring
@@ -28,6 +45,17 @@ tests = [
     "pytest>=3.6",
     "pytest-timeout",
 ]
+
+[project.urls]
+Homepage = "https://github.com/CSSFrancis/de-shell"
+Repository = "https://github.com/CSSFrancis/de-shell"
+Issues = "https://github.com/CSSFrancis/de-shell/issues"
+Changelog = "https://github.com/CSSFrancis/de-shell/blob/main/CHANGELOG.md"
+
+# One version, in one place: de_shell.__version__. The release workflow refuses
+# a tag that does not match it.
+[tool.setuptools.dynamic]
+version = {attr = "de_shell.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["de_shell*"]

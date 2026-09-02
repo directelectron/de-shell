@@ -6,8 +6,8 @@ node_modules/
 dist/
 out/
 build/
-# A library: the apps lock, this does not.
+# A library: the apps lock the Python side, this does not. The npm lock IS
+# committed: it pins the dev-only toolchain CI typechecks with.
 uv.lock
-package-lock.json
 .DS_Store
 .idea/

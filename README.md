@@ -1,22 +1,30 @@
 # DE Shell
 
+[![PyPI](https://img.shields.io/pypi/v/de-shell.svg)](https://pypi.org/project/de-shell/)
+[![CI](https://github.com/CSSFrancis/de-shell/actions/workflows/ci.yml/badge.svg)](https://github.com/CSSFrancis/de-shell/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 The substrate Direct Electron's desktop apps are assembled from: **SpyDE**
 (offline analysis), **Ground Crew** (manual camera control) and **Autopilot**
 (automated acquisition). Each app is an Electron window over a Python
 sidecar, and everything the three have in common lives here — the
 Python↔JS message pipe, the window and its menus, the figure bridge over
-anyplotlib, the sidecar process manager and its Python environment, the
-updater, the problem reporter, the Playwright harness.
+[anyplotlib](https://pypi.org/project/anyplotlib/), the sidecar process
+manager and its Python environment, the updater, the problem reporter, the
+Playwright harness.
 
 It contains **no domain logic**. No detectors, no microscopes, no signal
 types, no analysis. `tests/test_boundary.py` enforces that in a clean
 subprocess: the shell must stay installable without the science stack, so
 the live in-memory apps never acquire it transitively.
 
+```bash
+pip install de-shell
+```
+
 ## One package
 
-The shell is **one pip package, `de-shell`**, and the TypeScript rides
-inside the wheel:
+The shell is **one pip package**, and the TypeScript rides inside the wheel:
 
 ```
 pyproject.toml          the package: de-shell
@@ -37,33 +45,16 @@ TypeScript is shipped as **source** and compiled by the consuming app's
 bundler, so there is no build step here and an editable install is
 live-editable from the app.
 
-## Checking it
-
-```bash
-uv sync --extra tests && uv run pytest        # the Python suite
-ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install   # types only; drop the variable to run Electron
-npm run typecheck                             # every target, tests included, under tsconfig.json
-npm run test:unit                             # node --test over de_shell/js
-uv build                                      # the wheel — check it carries de_shell/js
-```
-
-The unit tests run under Node's native type stripping, which resolves
-relative imports literally — so shell modules import their siblings with the
-`.ts` extension spelled out, and every tsconfig that compiles them (this one
-and each app's) sets `allowImportingTsExtensions`.
-
 ## Consuming it
 
-**Python** — an ordinary dependency. Until it is on PyPI, a path or git
-source:
+**Python** — an ordinary dependency:
 
 ```toml
-dependencies = ["de-shell"]
-
-[tool.uv.sources]
-de-shell = { path = "../de-shell", editable = true }   # a sibling checkout
-# de-shell = { git = "https://github.com/directelectron/de-shell" }
+dependencies = ["de-shell>=0.2,<0.3"]
 ```
+
+For hacking on the shell and an app at once, a sibling checkout as an
+editable path source (uv) or `pip install -e ../de-shell` overlays it.
 
 **Electron** — ask the installed package where its TypeScript is and link
 it into the project at a fixed path, then alias and `paths` through the link:
@@ -96,10 +87,41 @@ peer dependencies — react, electron, electron-updater, @playwright/test —
 are the app's to declare; every app already does. The e2e specs take the
 harness from `shell/testing/harness.cjs`.
 
-Autopilot is wired this way, and SpyDE is on its `chore/de-shell-split`
-branch (the same link script, plus its installer staging the shell's wheel
-beside its own). Ground Crew still carries a copy under its `packages/` and
-is next.
+Autopilot and SpyDE (on its `chore/de-shell-split` branch) are wired this
+way; Ground Crew still carries a copy under its `packages/` and is next.
+
+## Developing it
+
+```bash
+uv sync --extra tests && uv run pytest        # the Python suite
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install   # types only; drop the variable to run Electron
+npm run typecheck                             # every target, tests included, under tsconfig.json
+npm run test:unit                             # node --test over de_shell/js
+uv build                                      # the wheel — CI checks it carries de_shell/js
+```
+
+The unit tests run under Node's native type stripping, which resolves
+relative imports literally — so shell modules import their siblings with the
+`.ts` extension spelled out, and every tsconfig that compiles them (this one
+and each app's) sets `allowImportingTsExtensions`.
+
+CI (`.github/workflows/ci.yml`) runs the Python suite on Linux, Windows and
+macOS at the oldest and newest supported Python, the typecheck and unit
+tests, and builds the wheel and checks what it carries.
+
+## Releasing
+
+The version is written once, in `de_shell/__init__.py`. To release:
+
+1. Bump `__version__`, move the `CHANGELOG.md` entries under the new version.
+2. Commit, tag `vX.Y.Z`, push the tag.
+
+`.github/workflows/publish.yml` builds the distributions, refuses a tag that
+does not match `__version__`, and uploads to PyPI through trusted publishing
+— on pypi.org the project must list this repository, that workflow file and
+the `pypi` environment as a publisher (no token lives in the repo). Semver,
+with the 0.x caveat: a breaking change to the sidecar protocol bumps the
+minor, and the apps pin `>=0.x,<0.(x+1)`.
 
 ## Provenance
 
@@ -134,4 +156,6 @@ branch that has not merged.
   package on purpose; keep it that way.
 * **LF line endings**, enforced by `.gitattributes`.
 
-GPL-3.0-or-later, as SpyDE.
+## License
+
+MIT — see [LICENSE](LICENSE).

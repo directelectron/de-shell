@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: pytest (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: uv sync --extra tests
+      # The boundary test runs in a clean subprocess and fails if the shell
+      # ever pulls in the science stack; it is the one that matters most.
+      - name: Test
+        run: uv run pytest -q
+
+  typescript:
+    name: typecheck + node --test
+    runs-on: ubuntu-latest
+    env:
+      # Types only — the Electron binary is never run here.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run test:unit
+
+  build:
+    name: build the wheel and check what it carries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      # The whole point of the package: the TypeScript is in the wheel.
+      - name: The wheel carries de_shell/js
+        run: |
+          uv run --no-project python - <<'EOF'
+          import glob, sys, zipfile
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          js = [n for n in names if "/js/" in n]
+          need = ["de_shell/js/main/index.ts", "de_shell/js/preload/index.ts",
+                  "de_shell/js/renderer/index.ts", "de_shell/js/testing/harness.cjs",
+                  "de_shell/js/package.json"]
+          missing = [n for n in need if n not in names]
+          print(f"{wheel}: {len(js)} files under de_shell/js")
+          if missing:
+              sys.exit("missing from the wheel: " + ", ".join(missing))
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

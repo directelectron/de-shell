@@ -1,0 +1,62 @@
+# Release: push a tag `vX.Y.Z` that matches de_shell.__version__.
+#
+# Publishes through PyPI's trusted publishing (no token in the repo): on
+# pypi.org, the project `de-shell` must list this repository, this workflow
+# file (publish.yml) and the `pypi` environment as a publisher. Until that is
+# configured, the publish job fails at upload and the built distributions are
+# still attached to the run as an artifact.
+name: Publish to PyPI
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build + check the tag matches the version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: The tag is the package's version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(uv run --no-project python -c 'import re; print(re.search(r"__version__\s*=\s*\"([^\"]+)\"", open("de_shell/__init__.py").read()).group(1))')"
+          echo "tag=$tag version=$version"
+          test "$tag" = "$version" || { echo "::error::tag v$tag does not match de_shell.__version__ = $version"; exit 1; }
+      - run: uv build
+      - name: The wheel carries de_shell/js
+        run: |
+          uv run --no-project python - <<'EOF'
+          import glob, sys, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          if "de_shell/js/main/index.ts" not in names:
+              sys.exit("the wheel has no de_shell/js — the package-data list in pyproject.toml is wrong")
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/de-shell/
+    permissions:
+      id-token: write   # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        # To publish with an API token instead of trusted publishing, add
+        #   with:
+        #     password: ${{ secrets.PYPI_API_TOKEN }}
+        # and drop the id-token permission above.

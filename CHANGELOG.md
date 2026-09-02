@@ -7,6 +7,31 @@ sidecar protocol bumps the minor.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-02
+
+Ground Crew's shell work from after the merge base, so it can move onto the
+package too.
+
+### Added
+- `createStdoutDemux` (main): the sidecar's stdout demuxer as a chunk-list
+  accumulator that copies each byte once. The inline parser re-copied the
+  whole buffered prefix per chunk, O(N^2/chunkSize) while a large frame
+  streamed in (11.9 s per 64 MB frame at 64 KiB chunks). A malformed
+  `PLOTAPP:` line is now reported on stderr rather than swallowed.
+- `createSizeReporter` (renderer): `FigureFrame` skips the zero-size first
+  layout and any resize whose rounded size is unchanged, and holds its
+  `onResize` in a ref so an inline callback no longer re-runs the effect
+  (measured at ~1,500 sends/s over constant geometry before).
+- `attachFigure` (renderer): figure registration is owned by an effect and
+  re-registers on every run, so React StrictMode's double-invoke no longer
+  leaves a figure registered nowhere with its pane black.
+- `PIN_SCROLL`: every figure document undoes the focus-scroll that shifted a
+  fresh pane by half its overflow on first hover.
+
+### Changed
+- anyplotlib floor raised to 0.8.0, for its fix to a tiled image born on a
+  placeholder rendering solid black.
+
 ## [0.2.0] — 2026-09-02
 
 The first release as its own package. Until now the shell lived as a vendored
@@ -36,5 +61,6 @@ diverged.
 - License: MIT (the vendored copies were GPL-3.0-or-later inside SpyDE).
 - Line endings are LF throughout, enforced by `.gitattributes`.
 
-[Unreleased]: https://github.com/directelectron/de-shell/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/directelectron/de-shell/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/directelectron/de-shell/releases/tag/v0.2.1
 [0.2.0]: https://github.com/directelectron/de-shell/releases/tag/v0.2.0

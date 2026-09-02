@@ -109,6 +109,37 @@ def robust_levels(frame: np.ndarray, *,
 #: Figure chrome background. The apps are dark; anyplotlib's template is not.
 FIGURE_BACKGROUND = "#1e1e2e"
 
+#: Injected into every figure frame: the figure document must never SCROLL.
+#:
+#: anyplotlib lays its panel out at the size the app reports and then wraps it
+#: in ~16 px of its own chrome, so the figure document is always a little taller
+#: than the frame it lives in. Nothing shows that — the overflow is clipped —
+#: until something inside gets FOCUS: the first pointer entry focuses the plot
+#: canvas, the browser scrolls that focused element into view, and the whole
+#: picture jumps up by half the overflow. Once. On the first hover of a fresh
+#: pane, which is exactly what an operator reads as "the FFT moved".
+#:
+#: CSS cannot stop it. `overflow: hidden` still leaves a programmatically
+#: scrollable box, and `overflow: clip` on the root propagates to the viewport,
+#: which Chromium scrolls anyway (measured, both).
+#:
+#: So the scroll is UNDONE, on the capture phase, the moment it happens. The
+#: figure's own pan and zoom never touch document scroll — they are canvas
+#: transforms — so a scrolled figure document is always this artefact and never
+#: something a user asked for. Assigning 0 to an already-0 offset does not
+#: re-fire, so this settles rather than loops.
+#: BOTH boxes, deliberately: which one actually scrolls depends on the overflow
+#: cascade — with `html` hidden the viewport cannot scroll and `body` keeps a
+#: scroll box of its own, and the focus scroll lands on whichever it is
+#: (measured: `body` under the style above, `html` when the root is `clip`).
+PIN_SCROLL = (
+    "<script>addEventListener('scroll',function(){"
+    "var d=document,b=[d.documentElement,d.body,d.scrollingElement];"
+    "for(var i=0;i<b.length;i++){var e=b[i];if(!e)continue;"
+    "if(e.scrollTop)e.scrollTop=0;if(e.scrollLeft)e.scrollLeft=0}"
+    "},{capture:true,passive:true})</script>"
+)
+
 
 def fill_iframe_html(html: str, *, background: str = FIGURE_BACKGROUND,
                      extra_head: str = "") -> str:
@@ -130,7 +161,7 @@ def fill_iframe_html(html: str, *, background: str = FIGURE_BACKGROUND,
              f"#widget-root{{background:{background} !important;"
              "width:100% !important;height:100% !important;display:block !important}"
              "</style>")
-    return html.replace("<body>", style + extra_head + "<body>", 1)
+    return html.replace("<body>", style + PIN_SCROLL + extra_head + "<body>", 1)
 
 
 class FigureView:

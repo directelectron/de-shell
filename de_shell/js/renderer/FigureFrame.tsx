@@ -5,7 +5,10 @@
  * are easy to omit without any error appearing:
  *
  * * **Register with the bridge**, so state can be routed to this frame — and
- *   deregister on unmount, so a dead element is not held.
+ *   deregister on unmount, so a dead element is not held. In an EFFECT
+ *   (`attachFigure`), not the ref callback alone: StrictMode's double-invoke
+ *   otherwise leaves the figure registered nowhere, and everything pushed to it
+ *   afterwards goes into the void.
  * * **Replay on load**, passing THIS element. State that arrived before the
  *   frame mounted was posted into the void; replay is the only thing that
  *   recovers it, and a figure mounted twice must serve itself rather than
@@ -21,7 +24,8 @@
  * the host page needs `script-src … blob:` for anyplotlib's ESM boot.
  */
 import React, { useEffect, useRef } from 'react'
-import type { FigureBridge } from './figureBridge'
+import { attachFigure, type FigureBridge } from './figureBridge'
+import { createSizeReporter } from './sizeReporter'
 
 export interface FigureFrameProps {
   bridge: FigureBridge
@@ -44,26 +48,33 @@ export function FigureFrame({
 }: FigureFrameProps) {
   const ref = useRef<HTMLIFrameElement | null>(null)
 
-  // Report size to the backend. Fires once on mount and on every resize; the
-  // zero-size guard skips the frame's first layout pass, which would otherwise
-  // tell the backend to lay the figure out at 0×0.
+  // Report size to the backend. Fires once on mount and on every OBSERVED
+  // resize; `createSizeReporter` skips the frame's zero-size first layout
+  // pass and any firing whose rounded size hasn't changed.
+  //
+  // Hardened on both axes the resize burst rode in on: the callback lives in
+  // a ref and the effect deps carry `figId` ONLY, so an inline `onResize`
+  // prop — a new identity on every parent render — no longer re-runs the
+  // effect (which sent unconditionally per re-run; message-driven re-renders
+  // then fed a loop measured at ~1,500 sends/s over constant geometry). The
+  // reporter's skip-on-unchanged covers ResizeObserver refires the same way.
+  const onResizeRef = useRef(onResize)
+  onResizeRef.current = onResize
   useEffect(() => {
     const el = ref.current
-    if (!el || !onResize) return
-    const send = () => {
-      const r = el.getBoundingClientRect()
-      if (r.width > 0 && r.height > 0) {
-        onResize(Math.round(r.width), Math.round(r.height))
-      }
-    }
+    if (!el) return
+    const report = createSizeReporter((w, h) => onResizeRef.current?.(w, h))
+    const send = () => report(el.getBoundingClientRect())
     send()
     const ro = new ResizeObserver(send)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [figId, onResize])
+  }, [figId])
 
-  // Deregister on unmount so the bridge never holds a detached element.
-  useEffect(() => () => bridge.registerIframe(figId, null), [bridge, figId])
+  // REGISTRATION IS OWNED BY AN EFFECT, not by the ref callback alone, and it
+  // re-registers on every run — see `attachFigure`, which holds the reason and
+  // is where the StrictMode double-invoke is pinned by a test.
+  useEffect(() => attachFigure(bridge, figId, ref.current), [bridge, figId])
 
   return (
     <iframe

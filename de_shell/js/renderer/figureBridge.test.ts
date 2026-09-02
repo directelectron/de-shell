@@ -10,7 +10,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { createFigureBridge } from './figureBridge.ts'
+import { attachFigure, createFigureBridge } from './figureBridge.ts'
 
 /** A stand-in iframe that records what was posted into it. */
 function fakeIframe(testid = 'frame') {
@@ -180,5 +180,68 @@ describe('registry and eviction', () => {
     bridge.applyState('ghost', 'k', 'v')
     const row = bridge.dump().find(r => r.figId === 'ghost')!
     assert.equal(row.registeredIn, 'NONE')
+  })
+})
+
+describe('attachFigure — the mount lifecycle a figure has to survive', () => {
+  /** React StrictMode, in dev builds: effect, cleanup, effect — same element. */
+  function strictMount(bridge: any, figId: string, el: HTMLIFrameElement) {
+    const detach1 = attachFigure(bridge, figId, el)
+    detach1()
+    return attachFigure(bridge, figId, el)
+  }
+
+  test('a StrictMode double-invoke leaves the figure REGISTERED', () => {
+    // The defect this pins: the cleanup deregistered and nothing put the
+    // element back, because the ref callback does not fire again for the same
+    // DOM node. Everything pushed afterwards was stashed and posted nowhere,
+    // and the pane kept the placeholder its srcdoc was born with — a solid
+    // black FFT pane in a dev build, correct in a production one.
+    const bridge = createFigureBridge()
+    const frame = fakeIframe()
+    strictMount(bridge, 'f1', frame.el)
+
+    assert.equal(bridge.iframes.current.get('f1'), frame.el)
+    frame.posted.length = 0
+    bridge.applyState('f1', 'display_min', -66.4)
+    assert.deepEqual(frame.posted.map(p => p.message),
+      [{ type: 'awi_state', key: 'display_min', value: -66.4 }])
+  })
+
+  test('state that arrived while the slot was empty is replayed on attach', () => {
+    // The other half: a pane whose frame is computed seconds after it mounts
+    // (an FFT, a fit) pushes into an empty slot. Attaching has to deliver it.
+    const bridge = createFigureBridge()
+    const frame = fakeIframe()
+    bridge.applyState('f1', 'title', 'Image FFT')
+    bridge.applyState('f1', 'raw_max', 255)
+    attachFigure(bridge, 'f1', frame.el)
+
+    assert.deepEqual(frame.posted.map(p => p.message.key), ['title', 'raw_max'])
+  })
+
+  test('a real unmount deregisters, and a remount is not evicted by it', () => {
+    const bridge = createFigureBridge()
+    const first = fakeIframe('first')
+    const detach = attachFigure(bridge, 'f1', first.el)
+    detach()
+    assert.equal(bridge.iframes.current.get('f1'), undefined)
+
+    // A remount registers the NEW element before the old one's cleanup runs,
+    // which is the order React uses. The stale cleanup must not evict it.
+    const second = fakeIframe('second')
+    const detachSecond = attachFigure(bridge, 'f1', second.el)
+    detach()
+    assert.equal(bridge.iframes.current.get('f1'), second.el)
+    detachSecond()
+    assert.equal(bridge.iframes.current.get('f1'), undefined)
+  })
+
+  test('attaching nothing is a no-op, and detaching it evicts nobody', () => {
+    const bridge = createFigureBridge()
+    const frame = fakeIframe()
+    bridge.registerIframe('f1', frame.el)
+    attachFigure(bridge, 'f1', null)()
+    assert.equal(bridge.iframes.current.get('f1'), frame.el)
   })
 })

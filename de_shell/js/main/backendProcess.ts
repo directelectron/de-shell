@@ -9,6 +9,7 @@ import process from 'process'
 // Extension spelled out so node:test can load this module without a bundler
 // (native type-stripping resolves relative imports literally).
 import { shellConfig } from './config.ts'
+import { createStdoutDemux } from './stdoutDemux.ts'
 
 export interface BackendHandlers {
   onMessage: (msg: Record<string, unknown>) => void
@@ -18,9 +19,6 @@ export interface BackendHandlers {
   // ArrayBuffer so large image frames skip the base64/JSON/atob cost.
   onBinary?: (header: Record<string, unknown>, payload: Buffer) => void
 }
-
-const PLOTBIN = Buffer.from('PLOTBIN:')
-const NL = 0x0a
 
 let proc: ChildProcess | null = null
 let tickTimer: ReturnType<typeof setInterval> | null = null
@@ -95,60 +93,20 @@ export function startBackend(
     if (!proc && tickTimer) { clearInterval(tickTimer); tickTimer = null }
   }, 2000)
 
-  // Custom stdout demuxer: the stream interleaves text lines (PLOTAPP: JSON and
-  // plain log output, both '\n'-terminated) with raw PLOTBIN binary frames
-  // (PLOTBIN:<hlen>:<plen>\n<header_json><payload>). readline can't carry binary,
-  // so we parse the raw Buffer stream ourselves, accumulating partial reads.
-  let acc: Buffer = Buffer.alloc(0)
-  child.stdout!.on('data', (chunk: Buffer) => {
-    acc = acc.length ? Buffer.concat([acc, chunk]) : chunk
-    // Process as many complete units as are buffered; stop when we need more.
-    for (;;) {
-      if (acc.length === 0) break
-      // A binary frame if the buffer starts with the PLOTBIN marker.
-      if (acc.length >= PLOTBIN.length &&
-          acc.subarray(0, PLOTBIN.length).equals(PLOTBIN)) {
-        const nl = acc.indexOf(NL)
-        if (nl < 0) break                       // prefix line incomplete
-        const prefix = acc.subarray(PLOTBIN.length, nl).toString('ascii')
-        const [hlenS, plenS] = prefix.split(':')
-        const hlen = parseInt(hlenS, 10), plen = parseInt(plenS, 10)
-        if (!(hlen >= 0) || !(plen >= 0)) {     // malformed → drop the line
-          handlers.onStream(`[sidecar protocol] malformed PLOTBIN prefix: ${prefix}\n`, 'stderr')
-          acc = acc.subarray(nl + 1); continue
-        }
-        const bodyStart = nl + 1
-        const end = bodyStart + hlen + plen
-        if (acc.length < end) break             // body not fully arrived yet
-        let header: Record<string, unknown> = {}
-        try {
-          header = JSON.parse(acc.subarray(bodyStart, bodyStart + hlen).toString('utf8'))
-        } catch { /* malformed header — still consume the frame */ }
-        // Copy the payload out so it survives `acc` being sliced/reused.
-        const payload = Buffer.from(acc.subarray(bodyStart + hlen, end))
-        acc = acc.subarray(end)
-        try { handlers.onBinary?.(header, payload) } catch { /* ignore */ }
-        continue
-      }
-      // Otherwise a text line up to the next '\n'.
-      const nl = acc.indexOf(NL)
-      if (nl < 0) break                         // line incomplete
-      const line = acc.subarray(0, nl).toString('utf8')
-      acc = acc.subarray(nl + 1)
-      if (line.startsWith('PLOTAPP:')) {
-        try {
-          handlers.onMessage(JSON.parse(line.slice(8)) as Record<string, unknown>)
-        } catch {
-          // Say so rather than swallow it: a truncated frame is how a backend
-          // bug presents, and silence turns it into "the UI just stopped".
-          handlers.onStream(`[sidecar protocol] malformed JSON message: ${line.slice(0, 200)}\n`, 'stderr')
-        }
-      } else if (line.trim()) {
-        rememberOutput(line)
-        handlers.onStream(line + '\n', 'stdout')
-      }
-    }
+  // Custom stdout demuxer (stdoutDemux.ts): the stream interleaves text lines
+  // (PLOTAPP: JSON and plain log output, both '\n'-terminated) with raw PLOTBIN
+  // binary frames (PLOTBIN:<hlen>:<plen>\n<header_json><payload>). readline
+  // can't carry binary, so the raw Buffer stream is parsed with a chunk-list
+  // accumulator — each byte is copied exactly once, into the emitted unit
+  // (the old whole-prefix Buffer.concat per chunk was O(N²/chunkSize) while a
+  // large frame streamed in: 11.9 s per 64 MB frame at 64 KiB chunks). Plain
+  // output is remembered for a problem report on the way past; the demuxer
+  // itself says so on a malformed message rather than swallowing it.
+  const demux = createStdoutDemux({
+    ...handlers,
+    onStream: (text, kind) => { rememberOutput(text); handlers.onStream(text, kind) },
   })
+  child.stdout!.on('data', (chunk: Buffer) => demux.push(chunk))
 
   child.stderr!.on('data', (d: Buffer) => {
     rememberOutput(d.toString())

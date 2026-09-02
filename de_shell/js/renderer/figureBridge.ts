@@ -58,6 +58,39 @@ export interface FigureBridge {
   dump(classify?: (el: HTMLIFrameElement | undefined) => string): Record<string, unknown>[]
 }
 
+/**
+ * Attach `el` to `figId` for as long as a host component is mounted, and return
+ * the detach. The registration half of `FigureFrame`, exported so the lifecycle
+ * it has to survive can be driven in a test — a `.tsx` cannot be, under this
+ * package's plain `node --test` runner.
+ *
+ * WHY IT IS AN EFFECT BODY AND NOT A REF CALLBACK. React StrictMode (dev builds
+ * only) mounts, runs effects, runs their CLEANUP, and runs them AGAIN — against
+ * the same DOM element, so a ref callback does not fire the second time. A
+ * cleanup that only deregistered therefore left the bridge with no iframe for
+ * the figure and nothing to put one back: every later `applyState`/`applyBinary`
+ * was stashed and posted into the void, and the frame's `onLoad` replay had
+ * already fired. A pane whose state arrives LATER than its mount then keeps
+ * whatever its srcdoc was born with — the zeros placeholder, i.e. solid black
+ * in a dev build and correct in a production one. Re-registering on every run
+ * makes the double-invoke harmless, and the replay re-delivers whatever landed
+ * while the slot was empty.
+ *
+ * The detach checks that the slot is still OURS: a real remount registers the
+ * new element first, and this must not evict it.
+ */
+export function attachFigure(bridge: FigureBridge, figId: string,
+                             el: HTMLIFrameElement | null): () => void {
+  if (el) {
+    bridge.registerIframe(figId, el)
+    bridge.replay(figId, el)
+  }
+  return () => {
+    if (bridge.iframes.current.get(figId) === el) bridge.registerIframe(figId, null)
+  }
+}
+
+
 export function createFigureBridge(
   log: (label: string, detail: Record<string, unknown>) => void = () => {},
 ): FigureBridge {

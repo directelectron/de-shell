@@ -141,9 +141,9 @@ SpyDE commit the app copies were taken from:
   panes on large stills), JSON emit that never writes bare `NaN`, the harness
   hardening, and the unit tests for all of it.
 
-Not yet included: Ground Crew's `dev/instrument-actions` shell deltas
-(`stdoutDemux`, `sizeReporter`, the `frameBytes` transport) — they ride a
-branch that has not merged.
+* Ground Crew `main` @ 0382549 (0.2.1): the chunk-list stdout demuxer, the
+  size reporter and StrictMode-safe registration in `FigureFrame`, the figure
+  document's scroll pin, and the anyplotlib 0.8.0 floor.
 
 ## Rules
 

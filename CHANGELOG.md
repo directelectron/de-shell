@@ -13,6 +13,17 @@ sidecar protocol bumps the minor.
   leave a `<appId>-e2e-profile-*` directory behind. `pythonEnv.test.ts` now
   removes the directories it makes.
 
+### Fixed
+- The packaged sidecar runs from the managed env instead of the bundled project
+  directory. A working directory is an open handle that every process it spawns
+  inherits, so a sidecar rooted in the install directory kept a Windows update
+  from removing the old version — and the installer's app-running check could
+  not find the holder, because that check matches on executable path and the
+  interpreter lives in the env. The update dead-ended in "cannot be closed.
+  Please close it manually and click Retry", whose Retry re-runs the same check.
+  Nothing wanted that working directory: the app is installed into the env as a
+  wheel, and what it reads from the bundle it reads by absolute path.
+
 ## [0.2.1] - 2026-09-02
 
 Ground Crew's shell work from after the merge base, so it can move onto the

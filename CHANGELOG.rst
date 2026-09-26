@@ -12,6 +12,15 @@ change to the sidecar protocol bumps the minor.
 
 .. towncrier release notes start
 
+0.4.0 (2026-09-26)
+==================
+
+New Features
+------------
+
+- Apps gained a way to serve their backend's protocol to a remote client: ``createRelay`` (exported from ``@de/shell-main`` with the ``encodeMessage`` and ``encodeBinary`` encoders) listens on a TCP port and speaks the PLOTAPP/PLOTBIN framing, and ``de_shell.remote_client`` is its synchronous, standard-library Python client. (`#12 <https://github.com/directelectron/de-shell/pull/12>`_)
+
+
 0.3.0 (2026-09-24)
 ==================
 

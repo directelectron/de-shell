@@ -12,6 +12,18 @@ change to the sidecar protocol bumps the minor.
 
 .. towncrier release notes start
 
+0.5.0b1 (2026-10-13)
+====================
+
+Bug Fixes
+---------
+
+- The packaged sidecar runs from its Python environment rather than the install
+  directory, so a Windows update can remove the old version. Its working
+  directory used to hold the install directory open, and the update stalled at
+  "cannot be closed. Please close it manually and click Retry". (`#4 <https://github.com/directelectron/de-shell/pull/4>`_)
+
+
 0.4.0 (2026-09-26)
 ==================
 

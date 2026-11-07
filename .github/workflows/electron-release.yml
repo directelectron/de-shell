@@ -469,17 +469,6 @@ jobs:
           zip_file=$(ls ./*-wheels-"$PLATFORM".zip)
           gh release upload "$TAG" "$zip_file" --repo "$REPO" --clobber
 
-      - name: Upload build artifacts (for inspection)
-        uses: actions/upload-artifact@v4
-        with:
-          name: installer-${{ runner.os }}
-          path: |
-            ${{ inputs.electron-dir }}/dist/*.exe
-            ${{ inputs.electron-dir }}/dist/*.dmg
-            ${{ inputs.electron-dir }}/dist/*.zip
-            ${{ inputs.electron-dir }}/dist/*.AppImage
-          if-no-files-found: error
-
   # ── Un-draft the release now that every leg has published ───────────────────
   finalize:
     name: Publish (un-draft) the release

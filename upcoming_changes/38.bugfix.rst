@@ -1,0 +1,1 @@
+An update rebuilt without a version change now installs its new Python code; before, the app kept running the previous build's code until the lock file changed.

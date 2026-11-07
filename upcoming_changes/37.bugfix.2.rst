@@ -1,0 +1,1 @@
+First-run setup names the app it is building instead of saying "Building the SpyDE package" in every app.

@@ -1,0 +1,1 @@
+First-start setup trusts the operating system's certificate store, so it works behind an institutional proxy that re-signs HTTPS; a setting the user already made is left alone.

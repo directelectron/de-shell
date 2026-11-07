@@ -1,0 +1,1 @@
+On Windows, first-start setup can clone git dependencies into paths over 260 characters, without changing the user's git config.

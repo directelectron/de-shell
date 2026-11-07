@@ -45,6 +45,7 @@ import { createHash } from 'crypto'
 import { dirname, join } from 'path'
 // Extension spelled out so node:test can load this module without a bundler
 // (native type-stripping resolves relative imports literally).
+import { withoutPythonRedirects } from './childEnv.ts'
 import { envPrefix, shellConfig } from './config.ts'
 
 export interface ResolvedPython {
@@ -232,6 +233,35 @@ export function lockStamp(lockHash: string, extras: string[]): string {
   return extras.length ? `${lockHash}+extras=${[...extras].sort().join(',')}` : lockHash
 }
 
+/**
+ * The environment stamp: {@link lockStamp} plus a digest of the staged wheels.
+ *
+ * The app's own wheel and its workspace members reach the env only through
+ * `installAppWheel`, which runs only when the stamp changes. `uv.lock` records
+ * versions, so a rebuild that leaves them alone (a fixed tag re-run, a member
+ * whose version did not move) used to put new wheels on disk and keep running
+ * the old ones. Null `wheelsDigest` (no staged wheels) keeps the bare stamp.
+ */
+export function envStamp(lockHash: string, extras: string[], wheelsDigest: string | null): string {
+  const stamp = lockStamp(lockHash, extras)
+  return wheelsDigest ? `${stamp}+wheels=${wheelsDigest}` : stamp
+}
+
+/** sha256 over every staged wheel's name and bytes, or null when none are staged. */
+export function stagedWheelsDigest(projectDir: string): string | null {
+  const dir = join(projectDir, 'wheels')
+  let wheels: string[]
+  try {
+    wheels = readdirSync(dir).filter((f) => f.endsWith('.whl')).sort()
+  } catch { return null }
+  if (wheels.length === 0) return null
+  const hash = createHash('sha256')
+  for (const wheel of wheels) {
+    hash.update(wheel).update(' ').update(readFileSync(join(dir, wheel))).update(' ')
+  }
+  return hash.digest('hex')
+}
+
 /** `['--extra','a','--extra','b']` for `uv sync` / `uv export`. */
 export function extraArgs(extras: string[]): string[] {
   return extras.flatMap((e) => ['--extra', e])
@@ -417,6 +447,7 @@ export async function resolvePythonEnv(opts: EnsureOptions): Promise<ResolvedPyt
   const pythonExe = venvPython(envDir)
   const stampFile = join(envDir, `.${cfg.appId}-lock-hash`)
   const lockHash = createHash('sha256').update(readFileSync(bundledLock)).digest('hex')
+  const wheelsDigest = stagedWheelsDigest(bundledProject)
 
   // GPU decision: option > <APPID>_GPU > nvidia-smi probe. The probe only runs
   // when the app declared gpuExtras — otherwise there is nothing to decide. An
@@ -427,13 +458,13 @@ export async function resolvePythonEnv(opts: EnsureOptions): Promise<ResolvedPyt
   const gpu = gpuExtras.length === 0 ? false
     : (gpuExplicit ?? await hasNvidiaGpu())
   let extras = effectiveExtras(cfg.pythonExtras, gpuExtras, gpu)
-  let stamp = lockStamp(lockHash, extras)
+  let stamp = envStamp(lockHash, extras, wheelsDigest)
   // The stamp written when a probed GPU was dropped because the wheelhouse was
   // built without the GPU extras. Accepting it below is what stops an
   // air-gapped GPU machine from re-syncing — online, so failing — on every
   // launch; a new lock, or an explicit <APPID>_GPU=1, re-evaluates.
   const cpuOnly = effectiveExtras(cfg.pythonExtras, gpuExtras, false)
-  const gpuUnavailableStamp = `${lockStamp(lockHash, cpuOnly)}+gpu=unavailable`
+  const gpuUnavailableStamp = `${envStamp(lockHash, cpuOnly, wheelsDigest)}+gpu=unavailable`
 
   // Skip the sync if the venv already matches the shipped lock AND extras.
   const onDisk = existsSync(stampFile) ? readSafe(stampFile) : null
@@ -565,7 +596,7 @@ function uvEnv(
     : basePath
 
   return {
-    ...process.env,
+    ...withoutPythonRedirects(process.env),
     ...scmEnv,
     [pathKey]: mergedPath,
     // UV_PROJECT_ENVIRONMENT redirects `uv sync`'s venv out of the read-only
@@ -752,7 +783,9 @@ function installAppWheel(
   )
   return runUv(
     projectDir, envDir,
-    ['pip', 'install', ...(offlineEnv ? ['--offline'] : []), '--no-deps',
+    // --reinstall: a rebuild can keep the version, and uv skips a wheel whose
+    // name and version are already installed. --no-deps keeps it to this wheel.
+    ['pip', 'install', ...(offlineEnv ? ['--offline'] : []), '--no-deps', '--reinstall',
      '--python', venvPython(envDir), wheel],
     '', onProgress, offlineEnv,
   )

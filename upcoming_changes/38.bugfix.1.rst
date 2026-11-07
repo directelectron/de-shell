@@ -1,0 +1,1 @@
+A damaged ``settings.json`` is kept as ``settings.json.bad-<time>`` instead of being silently replaced with defaults, and saves can no longer leave a half-written file.

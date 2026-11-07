@@ -166,6 +166,13 @@ describe('computing overlays and action state', () => {
 })
 
 describe('toShellAction', () => {
+  test('carries a setup with no PyTorch step through to the overlay state', () => {
+    const start = toShellAction({ type: 'env_setup', state: 'start', torch: false })!
+    assert.deepEqual(start, { type: 'ENV_SETUP_START', wheelhouse: null, torch: false })
+    assert.equal(shellReducer(appState, start).envSetup?.torch, false)
+    assert.equal(shellReducer(appState, { type: 'ENV_SETUP_START' }).envSetup?.torch, true)
+  })
+
   test('maps the chrome messages', () => {
     assert.deepEqual(toShellAction({ type: 'status', text: 'hi' }),
       { type: 'STATUS', text: 'hi' })

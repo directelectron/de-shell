@@ -13,12 +13,14 @@
  * are buffered until the renderer listens — a progress line sent before React
  * mounted is not lost.
  */
+import { join } from 'path'
+
 import { app, dialog, ipcMain } from 'electron'
 
 import { channel, shellConfig } from './config'
 import { runEnvSetupMachine } from './envSetupMachine'
 import type { EnvSetupAnswer } from './envSetupMachine'
-import { resolvePythonEnv } from './pythonEnv'
+import { readLockedTorchVersion, resolvePythonEnv } from './pythonEnv'
 import type { EnsureOptions, ResolvedPython } from './pythonEnv'
 import type { ShellWindow } from './window'
 
@@ -56,6 +58,7 @@ export function runEnvSetup(
   listenForAnswers()
   return runEnvSetupMachine<ResolvedPython>({
     initialWheelhouse: opts.wheelhouse ?? null,
+    torch: readLockedTorchVersion(join(opts.resourcesPath, 'python')) !== null,
     run: (wheelhouse, onProgress) => resolvePythonEnv({
       ...opts,
       wheelhouse,

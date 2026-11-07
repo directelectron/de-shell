@@ -31,6 +31,8 @@ export interface EnvSetupWireMessage {
   event?: EnvProgressEvent
   /** The raw lines of this batch, newline-joined (progress only). */
   line?: string
+  /** False when setup has no PyTorch step (start only). */
+  torch?: boolean
   /** Human-readable failure (error only). */
   message?: string
   /** The wheelhouse folder being installed from, when there is one. */
@@ -117,6 +119,8 @@ export interface MachineDeps<R> {
   /** Native folder picker; null when cancelled. */
   pickFolder: () => Promise<string | null>
   quit: () => void
+  /** False when the app's lock has no torch, so the overlay drops that step. */
+  torch?: boolean
   /** Wheelhouse to start with (an app that already knows the machine is offline). */
   initialWheelhouse?: string | null
   intervalMs?: number
@@ -126,7 +130,11 @@ export async function runEnvSetupMachine<R>(deps: MachineDeps<R>): Promise<R> {
   let wheelhouse = deps.initialWheelhouse ?? null
   for (;;) {
     const batcher = createProgressBatcher({ emit: deps.emit, intervalMs: deps.intervalMs })
-    deps.emit({ type: 'env_setup', state: 'start', ...(wheelhouse ? { wheelhouse } : {}) })
+    deps.emit({
+      type: 'env_setup', state: 'start',
+      ...(wheelhouse ? { wheelhouse } : {}),
+      ...(deps.torch === false ? { torch: false } : {}),
+    })
     try {
       const result = await deps.run(wheelhouse, batcher.push)
       batcher.flush()

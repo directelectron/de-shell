@@ -13,6 +13,7 @@ import threading
 import pytest
 
 from de_shell.actions import figure_registry
+from de_shell.app import _what_failed
 from de_shell.actions.lifecycle import (
     bump_generation, is_current, progress_emitter, replace_tree_attr,
     run_on_worker, window_computing,
@@ -292,3 +293,11 @@ class TestFigureRegistry:
             assert seen == [4244], "a module importing twice must not double-evict"
         finally:
             figure_registry._EVICTORS.remove(seen.append)
+
+
+class TestFailureText:
+    def test_an_action_is_named_by_its_action(self):
+        assert _what_failed({"type": "action", "action": "find_vectors"}) == "find_vectors"
+
+    def test_another_message_is_named_by_its_type(self):
+        assert _what_failed({"type": "figure_event", "fig_id": "f"}) == "figure_event"

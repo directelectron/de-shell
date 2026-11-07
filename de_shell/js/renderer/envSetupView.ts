@@ -16,10 +16,12 @@ export const ENV_PHASES: ReadonlyArray<{ key: EnvPhase; label: string }> = [
 
 export type PillState = 'done' | 'active' | 'todo'
 
-export function phasePills(phase: EnvPhase) {
+/** `torch` false leaves out the PyTorch pill, for an app with no torch in its lock. */
+export function phasePills(phase: EnvPhase, torch = true) {
+  const phases = torch ? ENV_PHASES : ENV_PHASES.filter(p => p.key !== 'torch')
   const active = phase === 'working' ? 'resolving' : phase
-  const activeIdx = ENV_PHASES.findIndex(p => p.key === active)
-  return ENV_PHASES.map((p, i) => ({
+  const activeIdx = phases.findIndex(p => p.key === active)
+  return phases.map((p, i) => ({
     key: p.key,
     label: p.label,
     state: (i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'todo') as PillState,

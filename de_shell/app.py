@@ -134,11 +134,21 @@ async def _main(
                 pass          # the app claimed it
             else:
                 log.warning("[backend] unknown message type: %s", msg_type)
-        except Exception as e:
-            log.exception("handling %s failed", msg_type)
-            ipc.emit_error(str(e))
+        except Exception:
+            what = _what_failed(msg)
+            log.exception("%s failed", what)
+            ipc.emit_error(f"{what} failed — details are in the log.")
 
     session.shutdown()
+
+
+def _what_failed(msg: dict) -> str:
+    """What the status bar names when handling ``msg`` raised: the action for an
+    action, else the message type. The exception text (a KeyError shows as just
+    'name') goes to the log with its traceback instead."""
+    if msg.get("type") == "action":
+        return str(msg.get("action"))
+    return str(msg.get("type"))
 
 
 def run(

@@ -27,7 +27,7 @@ export { asShellMessage } from './protocol'
 export type {
   MsgBase, ShellMessage,
   ReadyMessage, StatusMessage, ErrorMessage, ProgressMessage,
-  BackendExitedMessage, EnvSetupMessage, EnvSetupEvent,
+  BackendExitedMessage, BackendStuckMessage, EnvSetupMessage, EnvSetupEvent,
   FigureMessage, StateUpdateMessage, StateUpdateBinaryMessage,
   WindowClosedMessage, WindowTitleMessage, WindowComputingMessage,
   LogMessage, LogBackfillMessage, LogLevelMessage,

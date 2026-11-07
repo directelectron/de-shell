@@ -30,7 +30,7 @@ import {
   findUv, resolvePythonEnv, hasNvidiaGpu, readWheelhouse, findWheelhouse,
   wheelhouseCandidates, lockStamp, buildSyncArgs, offlinePlan, effectiveExtras,
   gpuEnvOverride, platformMatches, fileUrl, checkWheelhouseExtras, venvPython, clearBrokenEnv,
-  withoutPythonDownloadLines,
+  withoutPythonDownloadLines, uvNetworkEnv,
 } from './pythonEnv.ts'
 
 configureShell({
@@ -398,4 +398,35 @@ test('clearBrokenEnv keeps a real venv and ignores a missing dir', () => {
   assert.equal(clearBrokenEnv(envDir), false)
   assert.equal(existsSync(join(envDir, 'pyvenv.cfg')), true)
   assert.equal(clearBrokenEnv(join(tempDir('none-'), 'python-env')), false)
+})
+
+test('uvNetworkEnv trusts the system certificate store under both spellings', () => {
+  const added = uvNetworkEnv({}, false)
+  assert.equal(added.UV_SYSTEM_CERTS, '1')
+  assert.equal(added.UV_NATIVE_TLS, '1')
+  assert.equal(added.GIT_CONFIG_COUNT, undefined)
+})
+
+test('uvNetworkEnv leaves a certificate choice the user made, including 0', () => {
+  assert.deepEqual(uvNetworkEnv({ UV_SYSTEM_CERTS: '0' }, false), {})
+  assert.deepEqual(uvNetworkEnv({ UV_NATIVE_TLS: '0' }, false), {})
+})
+
+test('uvNetworkEnv turns on git long paths on Windows', () => {
+  const added = uvNetworkEnv({}, true)
+  assert.equal(added.GIT_CONFIG_COUNT, '1')
+  assert.equal(added.GIT_CONFIG_KEY_0, 'core.longpaths')
+  assert.equal(added.GIT_CONFIG_VALUE_0, 'true')
+})
+
+test('uvNetworkEnv appends to git environment config already set', () => {
+  const added = uvNetworkEnv({ GIT_CONFIG_COUNT: '2' }, true)
+  assert.equal(added.GIT_CONFIG_COUNT, '3')
+  assert.equal(added.GIT_CONFIG_KEY_2, 'core.longpaths')
+  assert.equal(added.GIT_CONFIG_KEY_0, undefined)
+})
+
+test('the building step names the configured app, not SpyDE', () => {
+  const event = parseUvLine('Building test-app @ file:///C:/app')
+  assert.equal(event?.step, 'Building the Test App package')
 })

@@ -119,6 +119,38 @@ class TestSettings:
         s = SessionBase(settings_dir=str(tmp_path))
         assert s._settings == {}
 
+    def test_an_unreadable_file_is_kept_aside_not_overwritten(self, tmp_path, caplog):
+        hand_edited = '{"update_channel": "beta", "recent_files": ["a.dat"],}'
+        (tmp_path / "settings.json").write_text(hand_edited, encoding="utf-8")
+        s = SessionBase(settings_dir=str(tmp_path))
+        s.mark_tutorial_seen()
+        kept = list(tmp_path.glob("settings.json.bad-*"))
+        assert len(kept) == 1
+        assert kept[0].read_text(encoding="utf-8") == hand_edited
+        assert "unreadable" in caplog.text
+
+    def test_a_json_value_that_is_not_an_object_is_kept_aside(self, tmp_path):
+        (tmp_path / "settings.json").write_text("[1, 2]", encoding="utf-8")
+        assert SessionBase(settings_dir=str(tmp_path))._settings == {}
+        assert len(list(tmp_path.glob("settings.json.bad-*"))) == 1
+
+    def test_a_save_leaves_no_temporary_file(self, tmp_path):
+        s = SessionBase(settings_dir=str(tmp_path))
+        s._add_recent("/a")
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json"]
+
+    def test_a_save_that_fails_midway_keeps_the_previous_file(self, tmp_path, monkeypatch):
+        s = SessionBase(settings_dir=str(tmp_path))
+        s._add_recent("/a")
+
+        def fail(*args, **kwargs):
+            raise OSError("killed mid-write")
+
+        monkeypatch.setattr(json, "dump", fail)
+        s._add_recent("/b")
+        on_disk = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
+        assert on_disk["recent_files"] == ["/a"]
+
     def test_recent_files_round_trip_and_are_most_recent_first(self, tmp_path):
         s = SessionBase(settings_dir=str(tmp_path))
         s._add_recent("/a")

@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -138,16 +139,50 @@ class SessionBase:
     # ── Settings & recent files ───────────────────────────────────────────────
 
     def _load_settings(self) -> dict:
+        """The saved settings, or ``{}`` when there are none or they are unreadable.
+
+        An unreadable file is moved aside to ``settings.json.bad-<time>`` rather
+        than left in place: the next save writes the defaults, and that must not
+        destroy a file that only has a stray comma from a hand edit.
+        """
         try:
             with open(self._settings_path, encoding="utf-8") as fh:
-                return json.load(fh)
-        except Exception:
+                settings = json.load(fh)
+        except FileNotFoundError:
             return {}
+        except (OSError, ValueError) as e:
+            self._set_aside_unreadable_settings(e)
+            return {}
+        if not isinstance(settings, dict):
+            self._set_aside_unreadable_settings(TypeError("not a JSON object"))
+            return {}
+        return settings
+
+    def _set_aside_unreadable_settings(self, error: Exception) -> None:
+        aside = f"{self._settings_path}.bad-{time.strftime('%Y%m%d-%H%M%S')}"
+        try:
+            os.replace(self._settings_path, aside)
+        except OSError as e:
+            log.warning("settings file %s is unreadable (%s) and could not be moved aside: %s; "
+                        "using defaults", self._settings_path, error, e)
+            return
+        log.warning("settings file %s is unreadable (%s); using defaults and keeping it as %s",
+                    self._settings_path, error, aside)
 
     def _save_settings(self) -> None:
+        """Write the settings atomically: to a temporary file, then rename over.
+
+        Writing in place truncates first, so a backend killed mid-write (the
+        shell force-ends one that does not quit within 5 s) left an empty or
+        half-written file and lost every setting.
+        """
         os.makedirs(os.path.dirname(self._settings_path), exist_ok=True)
-        with open(self._settings_path, "w", encoding="utf-8") as fh:
+        temporary = f"{self._settings_path}.tmp"
+        with open(temporary, "w", encoding="utf-8") as fh:
             json.dump(self._settings, fh, indent=2)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temporary, self._settings_path)
 
     def _add_recent(self, path: str) -> None:
         if path in self._recent_files:
@@ -157,7 +192,7 @@ class SessionBase:
         try:
             self._save_settings()
         except Exception as e:
-            log.debug("saving recent-files settings failed: %s", e)
+            log.warning("saving recent-files settings failed: %s", e)
 
     def get_recent_files(self) -> list[str]:
         return list(self._recent_files[:self.MAX_RECENT])
@@ -177,7 +212,7 @@ class SessionBase:
         try:
             self._save_settings()
         except Exception as e:
-            log.debug("saving update_channel setting failed: %s", e)
+            log.warning("saving update_channel setting failed: %s", e)
 
     # ── First-run welcome tour ────────────────────────────────────────────────
 
@@ -196,7 +231,7 @@ class SessionBase:
         try:
             self._save_settings()
         except Exception as e:
-            log.debug("saving tutorial_seen setting failed: %s", e)
+            log.warning("saving tutorial_seen setting failed: %s", e)
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
 

@@ -8,6 +8,7 @@ import { spawn, spawnSync, ChildProcess } from 'child_process'
 import process from 'process'
 // Extension spelled out so node:test can load this module without a bundler
 // (native type-stripping resolves relative imports literally).
+import { withoutPythonRedirects } from './childEnv.ts'
 import { shellConfig } from './config.ts'
 import { createStdoutDemux } from './stdoutDemux.ts'
 
@@ -71,7 +72,7 @@ export function startBackend(
     // ~200 ms/frame base64+JSON+atob transport on a 4k movie. Set to "0" to force
     // the base64 fallback.
     env: {
-      ...process.env, PYTHONUNBUFFERED: '1',
+      ...withoutPythonRedirects(process.env), PYTHONUNBUFFERED: '1',
       APL_BINARY_TRANSPORT: process.env.APL_BINARY_TRANSPORT ?? '1',
     },
     stdio: ['pipe', 'pipe', 'pipe'],

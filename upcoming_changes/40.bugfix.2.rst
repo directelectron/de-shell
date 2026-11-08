@@ -1,0 +1,1 @@
+When handling a message fails, the status bar names the action that failed instead of showing the raw exception text.

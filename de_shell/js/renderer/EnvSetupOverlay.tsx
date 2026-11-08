@@ -36,7 +36,9 @@ export function EnvSetupOverlay({ setup, appName, envSetup, description }: EnvSe
   }, [setup.lines])
 
   const failed = !!setup.error
-  const tail = logTail(setup.lines)
+  // The raw failure (often a tool's exit code) goes to the end of the log,
+  // where it stays on screen; the headline says what to do instead.
+  const tail = logTail(failed ? [...setup.lines, String(setup.error)] : setup.lines)
 
   return (
     <div data-testid="env-setup-overlay" style={S.scrim}>
@@ -49,7 +51,7 @@ export function EnvSetupOverlay({ setup, appName, envSetup, description }: EnvSe
         </div>
 
         {failed ? (
-          <div data-testid="env-setup-error" style={S.error}>{setup.error}</div>
+          <div data-testid="env-setup-error" style={S.error}>{SETUP_FAILED_TEXT}</div>
         ) : (
           <div style={S.blurb}>
             {description ?? 'First launch only — downloading the analysis environment. '
@@ -61,7 +63,7 @@ export function EnvSetupOverlay({ setup, appName, envSetup, description }: EnvSe
         {!failed && (
           <>
             <div style={S.pills}>
-              {phasePills(setup.phase).map((p) => (
+              {phasePills(setup.phase, setup.torch ?? true).map((p) => (
                 <span key={p.key} style={{
                   fontSize: 11, padding: '3px 9px', borderRadius: 999,
                   border: `1px solid ${p.state === 'todo' ? colors.border : colors.accent}`,
@@ -103,6 +105,10 @@ export function EnvSetupOverlay({ setup, appName, envSetup, description }: EnvSe
     </div>
   )
 }
+
+const SETUP_FAILED_TEXT =
+  'Details are in the setup log below. Press Retry. ' +
+  'If this PC has no internet, press Install from a folder…'
 
 /** Indeterminate when percent is null; a filled bar when we have a %. */
 function ProgressBar({ percent }: { percent: number | null }) {

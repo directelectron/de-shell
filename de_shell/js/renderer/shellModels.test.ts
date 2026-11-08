@@ -89,3 +89,10 @@ test('env_setup messages from runEnvSetup flow through the shell reducer', () =>
   s = shellReducer(s, act({ state: 'done' }))
   assert.equal(s.envSetup, null)
 })
+
+test('phasePills leaves out PyTorch for an app with no torch', () => {
+  assert.deepEqual(phasePills('installing', false).map(p => p.label),
+    ['Resolve', 'Download', 'Install', 'Build'])
+  assert.deepEqual(phasePills('installing', false).map(p => p.state),
+    ['done', 'done', 'active', 'todo'])
+})

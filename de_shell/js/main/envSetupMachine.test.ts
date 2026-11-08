@@ -152,3 +152,27 @@ describe('the setup state machine', () => {
     assert.deepEqual(s.runs, ['E:/offline'])
   })
 })
+
+describe('the PyTorch step', () => {
+  async function startMessage(torch: boolean | undefined) {
+    const out: EnvSetupWireMessage[] = []
+    await runEnvSetupMachine({
+      run: async () => 'ok',
+      emit: (m) => out.push(m),
+      waitForAnswer: async () => 'quit' as EnvSetupAnswer,
+      pickFolder: async () => null,
+      quit: () => {},
+      ...(torch === undefined ? {} : { torch }),
+    })
+    return out.find((m) => m.state === 'start')
+  }
+
+  test('start says so when the app has no torch', async () => {
+    assert.equal((await startMessage(false))?.torch, false)
+  })
+
+  test('start leaves the default alone otherwise', async () => {
+    assert.equal((await startMessage(true))?.torch, undefined)
+    assert.equal((await startMessage(undefined))?.torch, undefined)
+  })
+})

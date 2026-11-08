@@ -71,6 +71,9 @@ export interface EnvSetupState {
   error?: string | null
   /** Folder being installed from, once the user picked one. */
   wheelhouse?: string | null
+  /** Whether setup has a PyTorch step; false for an app with no torch in its
+   *  lock. Absent means true, which is what older mains imply. */
+  torch?: boolean
 }
 
 export interface ShellState {
@@ -125,7 +128,7 @@ export type ShellAction =
   | { type: 'LOG_CLEAR' }
   | { type: 'LOG_LEVEL'; level: string }
   | { type: 'BACKEND_EXITED'; code: number | null; reason?: string }
-  | { type: 'ENV_SETUP_START'; wheelhouse?: string | null }
+  | { type: 'ENV_SETUP_START'; wheelhouse?: string | null; torch?: boolean }
   | { type: 'ENV_SETUP_ERROR'; message: string; wheelhouse?: string | null }
   | { type: 'ENV_SETUP_PROGRESS'; phase?: EnvPhase; step?: string; percent: number | null; raw: string }
   | { type: 'ENV_SETUP_DONE' }
@@ -199,6 +202,7 @@ export function shellReducer<S extends ShellState>(state: S, action: ShellAction
           lines: [],
           error: null,
           wheelhouse: action.wheelhouse ?? null,
+          torch: action.torch ?? true,
         },
         status: 'Setting up the analysis environment…',
       }
@@ -319,7 +323,9 @@ export function toShellAction(msg: Record<string, unknown>): ShellAction | null 
       // flat shape some apps still emit themselves.
       const wheelhouse = (msg.wheelhouse ?? null) as string | null
       const st = msg.state ?? (typeof msg.event === 'string' ? msg.event : 'progress')
-      if (st === 'start') return { type: 'ENV_SETUP_START', wheelhouse }
+      if (st === 'start') {
+        return { type: 'ENV_SETUP_START', wheelhouse, ...(msg.torch === false ? { torch: false } : {}) }
+      }
       if (st === 'done') return { type: 'ENV_SETUP_DONE' }
       if (st === 'error') {
         return { type: 'ENV_SETUP_ERROR', message: String(msg.message ?? 'Setup failed'), wheelhouse }

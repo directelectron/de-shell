@@ -22,6 +22,14 @@ export interface BackendHandlers {
 
 let proc: ChildProcess | null = null
 let tickTimer: ReturnType<typeof setInterval> | null = null
+/** The running backend's handlers, so stopBackend can report a stuck tree. */
+let procHandlers: BackendHandlers | null = null
+/** How long after the backstop's kill the backend's output may stay open
+ *  before it is reported as stuck. */
+const STUCK_AFTER_KILL_MS = 3000
+/** How long after the backend process exits its output may take to close
+ *  before the exit is reported without it. */
+const CLOSE_AFTER_EXIT_MS = 1000
 
 /**
  * The sidecar's last few hundred output lines, for a problem report.
@@ -77,6 +85,7 @@ export function startBackend(
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   proc = child
+  procHandlers = handlers
 
   // BACKEND TICK (0.5 Hz): Windows throttles timer delivery to the hidden
   // Python child so aggressively that its timer waits (time.sleep,
@@ -114,6 +123,18 @@ export function startBackend(
     handlers.onStream(d.toString(), 'stderr')
   })
 
+  // Surface the death to the renderer so the UI doesn't silently freeze —
+  // every sendAction() after this no-ops (proc is null), so without this the
+  // user gets no indication the analysis backend stopped. Routed through the
+  // same onMessage path as a synthetic message (not a PLOTAPP: line). Once per
+  // backend: a failed spawn, 'exit' and 'close' can each arrive.
+  let exitReported = false
+  const reportExit = (details: Record<string, unknown>) => {
+    if (exitReported) return
+    exitReported = true
+    handlers.onMessage({ type: 'backend_exited', ...details })
+  }
+
   // SPAWN-ERROR TRAP: a command that cannot be started (uv missing from PATH is
   // the recurring case) emits 'error' on the ChildProcess — and an 'error' event
   // with no listener CRASHES the Electron main process. 'close' never fires for
@@ -128,21 +149,28 @@ export function startBackend(
       (enoent ? ` — ${cmd} was not found. Is it installed and on PATH?` : '') +
       '\n',
       'stderr')
-    handlers.onMessage({ type: 'backend_exited', code: null, error: String(err.message ?? err) })
+    reportExit({ code: null, error: String(err.message ?? err) })
   })
 
-  child.on('close', (code) => {
+  // 'close' also waits for stdout and stderr to close, and in the packaged
+  // layout the spawned command is the venv's launcher while the real
+  // interpreter is its child holding the same pipes — so the launcher can be
+  // gone long before 'close' arrives (23.7 s in one case, the interpreter's
+  // exit pending on a DLL load). So 'exit' reports too, once 'close' has had
+  // a moment to follow, with `stdio_open`: the launcher exited, its output is
+  // still open.
+  child.on('exit', (code) => {
     // Only forget THIS child. After stopBackend() + startBackend(), the old
-    // process's late close event must not null the new backend's handle —
+    // process's late exit event must not null the new backend's handle —
     // every sendAction() after that would silently no-op.
+    if (proc === child) proc = null
+    setTimeout(() => reportExit({ code, stdio_open: true }), CLOSE_AFTER_EXIT_MS).unref()
+  })
+  child.on('close', (code) => {
     if (proc === child) proc = null
     rememberOutput(`[exited with code ${code}]`)
     handlers.onStream(`[${shellConfig().appName} exited with code ${code}]\n`, 'stderr')
-    // Surface the death to the renderer so the UI doesn't silently freeze —
-    // every sendAction() after this no-ops (proc is null), so without this the
-    // user gets no indication the analysis backend stopped. Routed through the
-    // same onMessage path as a synthetic message (not a PLOTAPP: line).
-    handlers.onMessage({ type: 'backend_exited', code })
+    reportExit({ code })
   })
 }
 
@@ -211,6 +239,7 @@ export function stopBackend(options: { immediate?: boolean } = {}): void {
   }
   stopping = true
   proc = null  // every sendAction() after this no-ops; prevents re-entrant kills
+  const handlers = procHandlers
   // KNOWN BUG (open): quitting while a find-vectors batch is still streaming can
   // WEDGE shutdown on Windows. Clearing the tick timer here stops the stdin tick
   // that keeps the hidden backend scheduled (the very starvation the tick was
@@ -241,7 +270,9 @@ export function stopBackend(options: { immediate?: boolean } = {}): void {
       setTimeout(() => {
         if (p.exitCode !== null || p.signalCode !== null) return  // already gone
         try {
-          spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+          const kill = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' })
+          kill.on('error', () => { /* reported as stuck below if the tree survives */ })
+          kill.on('close', (status) => reportIfStuck(p, pid, status, handlers))
         } catch { try { p.kill() } catch { /* nothing else to do */ } }
         // 5 s, not 1.5: Ground Crew's shutdown must send deapi's disconnect
         // before dying — a taskkilled backend leaves a dead client session on
@@ -261,6 +292,23 @@ export function stopBackend(options: { immediate?: boolean } = {}): void {
       }, 1500)
     }, 1500)
   }
+}
+
+/**
+ * After the backstop's kill, report `backend_stuck` if the backend's output is
+ * still open a little later: something in its tree outlived the kill, and the
+ * app cannot otherwise tell a backend still running from one that has gone.
+ * `status` is taskkill's exit status (0: the tree was ended).
+ */
+function reportIfStuck(
+  p: ChildProcess, pid: number, status: number | null, handlers: BackendHandlers | null,
+): void {
+  let closed = false
+  p.once('close', () => { closed = true })
+  setTimeout(() => {
+    if (closed || p.stdout?.readableEnded || p.stdout?.destroyed) return
+    handlers?.onMessage({ type: 'backend_stuck', pid, kill_status: status })
+  }, STUCK_AFTER_KILL_MS).unref?.()
 }
 
 /**

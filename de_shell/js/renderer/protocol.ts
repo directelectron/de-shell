@@ -13,8 +13,8 @@
  * being a compile error. This types the shape the renderer relies on; it is not
  * a schema.
  *
- * `backend_exited` is synthesised by @de/shell-main's backendProcess, not a real
- * PLOTAPP line.
+ * `backend_exited` and `backend_stuck` are synthesised by @de/shell-main's
+ * backendProcess, not real PLOTAPP lines.
  */
 
 /** Any field not explicitly modelled is still readable (as `unknown`). */
@@ -50,6 +50,18 @@ export interface BackendExitedMessage extends MsgBase {
   /** Set when main synthesises this for a packaged env-setup failure, as
    *  distinct from a plain runtime death. */
   reason?: string
+  /** The backend process exited but its output is still open: a process it
+   *  started, such as the interpreter behind a venv launcher, still holds it. */
+  stdio_open?: boolean
+}
+
+/** The backstop killed the backend's tree, yet its output is still open:
+ *  something outlived the kill. `kill_status` is the kill command's exit
+ *  status (0: it reported the tree ended). Synthesised by backendProcess. */
+export interface BackendStuckMessage extends MsgBase {
+  type: 'backend_stuck'
+  pid: number
+  kill_status: number | null
 }
 
 /** A classified `uv` line (main's EnvProgressEvent, restated). */
@@ -165,6 +177,7 @@ export type ShellMessage =
   | ErrorMessage
   | ProgressMessage
   | BackendExitedMessage
+  | BackendStuckMessage
   | EnvSetupMessage
   | FigureMessage
   | StateUpdateMessage

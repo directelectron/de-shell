@@ -1,0 +1,1 @@
+``backend_exited`` arrives when the backend process exits, with ``stdio_open: true`` if its output is still held open, instead of only once every pipe closes; a new ``backend_stuck`` message reports a backend tree that survived the shutdown backstop.

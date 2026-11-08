@@ -174,6 +174,17 @@ def emit_window_computing(window_id: int | None, computing: bool) -> None:
     emit({"type": "window_computing", "window_id": window_id, "computing": bool(computing)})
 
 
+def _is_quit(line: str) -> bool:
+    """True for a ``{"type": "quit"}`` line; cheap for every other line."""
+    if '"quit"' not in line:
+        return False
+    try:
+        message = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(message, dict) and message.get("type") == "quit"
+
+
 async def read_messages(loop: asyncio.AbstractEventLoop | None = None):
     """
     Async generator that yields parsed JSON dicts from stdin.
@@ -216,6 +227,13 @@ async def read_messages(loop: asyncio.AbstractEventLoop | None = None):
                 if binary:
                     raw = raw.decode("utf-8", errors="replace")
                 loop.call_soon_threadsafe(q.put_nowait, raw)
+                if _is_quit(raw):
+                    # Stop reading: the frontend may keep writing after `quit`,
+                    # and a readline still in flight when the interpreter shuts
+                    # down holds stdin's buffer lock. Python 3.13 then parks this
+                    # thread forever, lock held, and closing stdin at exit aborts
+                    # the process (SIGABRT, "could not acquire lock").
+                    break
         except Exception as e:
             log.debug("stdin pump stopped: %s", e)
         finally:

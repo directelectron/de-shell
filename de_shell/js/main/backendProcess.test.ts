@@ -68,3 +68,37 @@ test('a missing uv names uv and says how to fix it', async () => {
   const text = streams.join('')
   assert.match(text, /PATH/i)
 })
+
+test('a clean exit is reported once, after the output closes', async () => {
+  const { messages } = collectBackend([process.execPath, '-e', 'process.exit(3)'])
+  try {
+    await waitFor(() => messages.some((m) => m.type === 'backend_exited'))
+    await new Promise((r) => setTimeout(r, 1500))
+  } finally {
+    stopBackend()
+  }
+  const exits = messages.filter((m) => m.type === 'backend_exited')
+  assert.deepEqual(exits, [{ type: 'backend_exited', code: 3 }])
+})
+
+// On Windows a child's pipes report closed when it exits, even while a
+// process it started still writes to them, so there is no case to construct.
+const outputOutlivesExit = process.platform !== 'win32'
+
+test('an exit whose output a child keeps open is reported without waiting for it',
+  { skip: !outputOutlivesExit && 'pipes close at exit on Windows' }, async () => {
+  // The packaged layout: the spawned launcher exits while the interpreter it
+  // started still holds the same stdout and stderr.
+  const holdsOutput = "require('child_process').spawn(process.execPath, " +
+    "['-e', 'setTimeout(() => {}, 6000)'], { stdio: 'inherit' }); process.exit(0)"
+  const started = Date.now()
+  const { messages } = collectBackend([process.execPath, '-e', holdsOutput])
+  try {
+    await waitFor(() => messages.some((m) => m.type === 'backend_exited'))
+  } finally {
+    stopBackend()
+  }
+  assert.ok(Date.now() - started < 5000, 'the exit waited for the output to close')
+  const exited = messages.find((m) => m.type === 'backend_exited')
+  assert.deepEqual(exited, { type: 'backend_exited', code: 0, stdio_open: true })
+})

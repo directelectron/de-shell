@@ -1,1 +1,0 @@
-Windows Explorer's Extract All opens the offline wheels zip, whose entries no longer start with ``./``.

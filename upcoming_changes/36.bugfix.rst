@@ -1,1 +1,0 @@
-The release workflow no longer uploads each installer a second time as a workflow artifact, which counted against a private repository's Actions storage quota and failed the release once it was full; the installers are on the GitHub release.

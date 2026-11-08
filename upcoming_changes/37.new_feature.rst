@@ -1,1 +1,0 @@
-``log_stream.buffered()`` returns copies of the buffered log entries, for apps that send the log history somewhere other than the log panel.

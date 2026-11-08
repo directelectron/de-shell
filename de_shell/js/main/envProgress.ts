@@ -12,11 +12,13 @@
  * (test_env_progress.ts) without spawning uv.
  */
 
+import { shellConfig } from './config.ts'
+
 export type EnvPhase =
   | 'resolving'    // building the dependency graph
   | 'downloading'  // fetching wheels/sdists
   | 'installing'   // unpacking into the venv
-  | 'building'     // building the editable spyde package (setuptools_scm)
+  | 'building'     // building the app's own package (setuptools_scm)
   | 'torch'        // the per-machine torch step (the big one)
   | 'working'      // fallback: uv said something we don't specifically classify
 
@@ -29,6 +31,15 @@ export interface EnvProgressEvent {
 }
 
 const KNOWN_BIG = /\btorch\b/i
+
+/** "Ground Crew package", or "app's package" when the shell is not configured. */
+function appPackageName(): string {
+  try {
+    return `${shellConfig().appName} package`
+  } catch {
+    return "app's package"
+  }
+}
 
 /**
  * Classify ONE raw line of uv output. Returns null for noise (blank lines,
@@ -101,7 +112,7 @@ export function parseUvLine(raw: string): EnvProgressEvent | null {
     }
   }
   if (/^Building\b/i.test(line) || /setuptools[_-]scm|Building wheel|Building editable/i.test(line)) {
-    return { phase: 'building', step: 'Building the SpyDE package', percent: null }
+    return { phase: 'building', step: `Building the ${appPackageName()}`, percent: null }
   }
   if (/^Audit(ing|ed)\b/i.test(line)) {
     return { phase: 'installing', step: 'Finalizing the environment', percent: null }

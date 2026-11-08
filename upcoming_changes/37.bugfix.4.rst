@@ -1,0 +1,1 @@
+Uninstalling removes the auto-updater's copy of the installer from Local AppData, except during an update.

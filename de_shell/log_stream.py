@@ -167,12 +167,25 @@ def set_level(level) -> int:
     return lv
 
 
+def buffered() -> list[dict]:
+    """The buffered log entries, oldest first, as copies.
+
+    Each entry is the same dict a live ``log`` message carries. Empty until
+    :func:`install` has run. For an app that sends the history somewhere other
+    than the renderer's log panel, such as a newly attached remote client;
+    :func:`emit_backfill` would also repopulate a panel the user cleared.
+    """
+    if _handler is None:
+        return []
+    return [dict(entry) for entry in list(_handler.buffer)]
+
+
 def emit_backfill() -> None:
     """Re-emit buffered records so a freshly-opened panel shows recent history."""
     if _handler is None:
         return
     from de_shell.ipc import emit
-    emit({"type": "log_backfill", "entries": list(_handler.buffer)})
+    emit({"type": "log_backfill", "entries": buffered()})
 
 
 # ── staged handler (session.py dispatch: fn(session, plot, payload)) ───────────

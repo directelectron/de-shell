@@ -224,6 +224,14 @@ Var deShellSetupPid
   ${endif}
   deShellKeepData:
 
+  ; The auto-updater keeps a copy of the installer here (about the size of the
+  ; Setup exe). It is not user data, so a real uninstall removes it whatever the
+  ; answer above. An update runs this uninstaller with --updated and still needs
+  ; its copy, so leave it then.
+  ${ifNot} ${isUpdated}
+    RMDir /r "$LOCALAPPDATA\${APP_PACKAGE_NAME}-updater"
+  ${endif}
+
   ; Put the context back the way electron-builder's uninstaller expects it.
   ; $installMode only exists in assisted (non-oneClick) installers.
   !ifndef ONE_CLICK

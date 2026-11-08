@@ -593,8 +593,41 @@ function uvEnv(
     // then points at something this app neither owns nor removes, and which
     // may vanish under it. Seen in testing: a venv linked to a stray launcher.
     UV_MANAGED_PYTHON: '1',
+    ...uvNetworkEnv(process.env, isWin),
     ...extraEnv,
   }
+}
+
+/**
+ * Settings that keep uv's downloads and git clones working on locked-down
+ * machines.
+ *
+ * - Trust the operating system's certificate store. uv defaults to its own
+ *   bundled roots, so behind an institutional proxy that re-signs HTTPS with a
+ *   root installed in the system store, every download fails while browsers on
+ *   the same PC work. Both spellings are set because the uv an app ships is the
+ *   app's choice: `UV_SYSTEM_CERTS` is current, `UV_NATIVE_TLS` is what older uv
+ *   reads. A value the user already set, including `0`, is left alone.
+ * - On Windows, let git use paths over 260 characters for the clones uv runs
+ *   (`git+https` dependencies). MinGit ships with `core.longpaths` off, and a
+ *   deep user-data folder put a clone past the limit. Passed as git's
+ *   environment config, so the user's own git config is never touched; any
+ *   environment config entries already set are kept.
+ */
+export function uvNetworkEnv(env: NodeJS.ProcessEnv, windows: boolean): Record<string, string> {
+  const added: Record<string, string> = {}
+  if (env.UV_SYSTEM_CERTS === undefined && env.UV_NATIVE_TLS === undefined) {
+    added.UV_SYSTEM_CERTS = '1'
+    added.UV_NATIVE_TLS = '1'
+  }
+  if (windows) {
+    const existing = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10)
+    const index = existing > 0 ? existing : 0
+    added.GIT_CONFIG_COUNT = String(index + 1)
+    added[`GIT_CONFIG_KEY_${index}`] = 'core.longpaths'
+    added[`GIT_CONFIG_VALUE_${index}`] = 'true'
+  }
+  return added
 }
 
 /** Spawn the bundled (or PATH) uv with `args`, streaming output to onProgress. */

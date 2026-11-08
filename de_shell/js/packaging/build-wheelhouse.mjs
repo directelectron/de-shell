@@ -215,8 +215,10 @@ function zipDir(dir, zipPath) {
   if (process.platform === 'win32') {
     // bsdtar ships with Windows 10+ and writes a zip for `-a` on a .zip name.
     // Named by full path: under Git Bash `tar` is GNU tar, which has no -a.
-    const bsdtar = join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'tar.exe')
-    execFileSync(bsdtar, ['-a', '-c', '-f', zipPath, '-C', dir, '.'], { stdio: 'inherit' })
+    const bsdtar = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+    // List the entries rather than passing `.`: bsdtar keeps the `.` it is given, so
+    // every name comes out as `./<file>`, and Explorer's Extract All rejects the zip.
+    execFileSync(bsdtar, ['-a', '-c', '-f', zipPath, '-C', dir, ...readdirSync(dir)], { stdio: 'inherit' })
     return
   }
   try {

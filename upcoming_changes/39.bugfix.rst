@@ -1,1 +1,0 @@
-The backend no longer aborts at exit on Python 3.13 when the app keeps writing to it after asking it to quit.

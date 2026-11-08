@@ -1,1 +1,0 @@
-A failed first-run setup tells the user what to do next instead of showing a tool's exit code, which moves to the end of the setup log.

@@ -12,6 +12,38 @@ change to the sidecar protocol bumps the minor.
 
 .. towncrier release notes start
 
+0.5.0b3 (2026-11-08)
+====================
+
+API and Behaviour Changes
+-------------------------
+
+- ``backend_exited`` arrives when the backend process exits, with ``stdio_open: true`` if its output is still held open, instead of only once every pipe closes; a new ``backend_stuck`` message reports a backend tree that survived the shutdown backstop. (`#39 <https://github.com/directelectron/de-shell/pull/39>`_)
+
+
+New Features
+------------
+
+- The colormap picker offers ``CET_D1``, a diverging blue-white-red map (matplotlib's ``coolwarm``), and ``DIVERGING_COLORMAP`` names it for signed images. ``CET_R1``, which was listed as the diverging map, is a rainbow. (`#20 <https://github.com/directelectron/de-shell/pull/20>`_)
+- ``log_stream.buffered()`` returns copies of the buffered log entries, for apps that send the log history somewhere other than the log panel. (`#37 <https://github.com/directelectron/de-shell/pull/37>`_)
+
+
+Bug Fixes
+---------
+
+- An offline install's setup window said it was downloading Python, although the interpreter is copied from the wheelhouse; it now says it is installing Python from the wheelhouse. (`#32 <https://github.com/directelectron/de-shell/pull/32>`_)
+- The release workflow no longer uploads each installer a second time as a workflow artifact, which counted against a private repository's Actions storage quota and failed the release once it was full; the installers are on the GitHub release. (`#36 <https://github.com/directelectron/de-shell/pull/36>`_)
+- Windows Explorer's Extract All opens the offline wheels zip, whose entries no longer start with ``./``. (`#37 <https://github.com/directelectron/de-shell/pull/37>`_)
+- On Windows, first-start setup can clone git dependencies into paths over 260 characters, without changing the user's git config. (`#37 <https://github.com/directelectron/de-shell/pull/37>`_)
+- Uninstalling removes the auto-updater's copy of the installer from Local AppData, except during an update. (`#37 <https://github.com/directelectron/de-shell/pull/37>`_)
+- First-run setup names the app it is building instead of saying "Building the SpyDE package" in every app. (`#37 <https://github.com/directelectron/de-shell/pull/37>`_)
+- First-start setup trusts the operating system's certificate store, so it works behind an institutional proxy that re-signs HTTPS; a setting the user already made is left alone. (`#37 <https://github.com/directelectron/de-shell/pull/37>`_)
+- The backend no longer aborts at exit on Python 3.13 when the app keeps writing to it after asking it to quit. (`#39 <https://github.com/directelectron/de-shell/pull/39>`_)
+- When handling a message fails, the status bar names the action that failed instead of showing the raw exception text. (`#40 <https://github.com/directelectron/de-shell/pull/40>`_)
+- First-run setup no longer shows a PyTorch step in apps that do not install PyTorch. (`#40 <https://github.com/directelectron/de-shell/pull/40>`_)
+- A failed first-run setup tells the user what to do next instead of showing a tool's exit code, which moves to the end of the setup log. (`#40 <https://github.com/directelectron/de-shell/pull/40>`_)
+
+
 0.5.0b2 (2026-10-14)
 ====================
 

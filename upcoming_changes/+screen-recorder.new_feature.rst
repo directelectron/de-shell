@@ -1,0 +1,1 @@
+Apps can record their own window to a video file: ``registerScreenRecorder(win)`` in main, the preload bridge's ``recorder``, and ``<ScreenRecorder>`` with ``toggleScreenRecording()`` in the renderer, moved here from SpyDE so every app gets it.

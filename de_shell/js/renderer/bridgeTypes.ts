@@ -38,6 +38,12 @@ export interface ReportApi {
   submit(input: { message: string; contact?: string }): Promise<ReportResult>
 }
 
+export interface RecorderApi {
+  start(format: 'mp4' | 'webm'): Promise<string | null>
+  chunk(bytes: Uint8Array): Promise<void>
+  stop(): Promise<number>
+}
+
 export interface EnvSetupApi {
   answer(choice: 'retry' | 'use-wheelhouse' | 'quit'): void
 }

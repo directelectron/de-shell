@@ -64,6 +64,7 @@ export {
 } from './updaterErrors'
 
 export { registerUpdaterIpc, registerProblemReportIpc } from './shellIpc'
+export { registerScreenRecorder } from './screenRecorder'
 
 export { runEnvSetup, EnvSetupQuitError } from './envSetup'
 export type { EnvSetupAnswer, EnvSetupWireMessage } from './envSetup'

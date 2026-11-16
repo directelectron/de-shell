@@ -12,6 +12,15 @@ change to the sidecar protocol bumps the minor.
 
 .. towncrier release notes start
 
+0.5.0 (2026-11-16)
+==================
+
+New Features
+------------
+
+- Apps can record their own window to a video file: ``registerScreenRecorder(win)`` in main, the preload bridge's ``recorder``, and ``<ScreenRecorder>`` with ``toggleScreenRecording()`` in the renderer, moved here from SpyDE so every app gets it.
+
+
 0.5.0b3 (2026-11-08)
 ====================
 

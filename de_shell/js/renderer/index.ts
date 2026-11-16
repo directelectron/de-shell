@@ -46,10 +46,15 @@ export { ReportProblemDialog } from './ReportProblemDialog'
 export type { ReportProblemDialogProps } from './ReportProblemDialog'
 export { useUpdateStatus } from './useUpdateStatus.react'
 export type { UpdateSnapshot } from './useUpdateStatus.react'
+export { ScreenRecorder, toggleScreenRecording } from './ScreenRecorder'
+export type { ScreenRecorderProps } from './ScreenRecorder'
+export {
+  pickRecordingType, recordingClock, RECORDING_TYPES, TOGGLE_RECORDING_EVENT,
+} from './screenRecorderModel'
 
 export { updateCardModel, updateDialogModel } from './updateModel'
 export type { UpdateStatus, UpdateAction, UpdateCardModel, UpdateDialogModel } from './updateModel'
 export { canSubmit, submitLabel, countProblems, outcomeModel } from './reportModel'
 export type { ReportPhase } from './reportModel'
 export { phasePills, stepText, logTail, ENV_PHASES } from './envSetupView'
-export type { UpdaterApi, ReportApi, EnvSetupApi, UpdateInfo, ReportResult } from './bridgeTypes'
+export type { UpdaterApi, ReportApi, RecorderApi, EnvSetupApi, UpdateInfo, ReportResult } from './bridgeTypes'

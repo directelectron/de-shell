@@ -161,6 +161,19 @@ export function createShellBridge(opts: ShellBridgeOptions) {
         ipcRenderer.invoke(channel('report-submit'), input),
     },
 
+    /** Recording the window to a video file. Needs `registerScreenRecorder(win)`
+     *  in main; `<ScreenRecorder>` in the renderer drives it. */
+    recorder: {
+      /** Name the file in a save dialog and open it. Resolves to its path, or
+       *  null if the user cancelled. */
+      start: (format: 'mp4' | 'webm'): Promise<string | null> =>
+        ipcRenderer.invoke(channel('record-start'), format),
+      /** Append one chunk; await it before sending the next, to keep order. */
+      chunk: (bytes: Uint8Array): Promise<void> => ipcRenderer.invoke(channel('record-chunk'), bytes),
+      /** Close the file. Resolves to the bytes written; a file that got none is removed. */
+      stop: (): Promise<number> => ipcRenderer.invoke(channel('record-stop')),
+    },
+
     /** First-run environment setup. The progress/error messages themselves
      *  arrive as `{type: 'env_setup'}` on `onMessage` (route them with
      *  `toShellAction`); this is only the answer path back to `runEnvSetup`. */

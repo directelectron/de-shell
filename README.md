@@ -170,6 +170,25 @@ needs lives in `shell/packaging/`.
 installed when `nvidia-smi` finds a device. `<APPID>_GPU=0|1` overrides the
 probe either way.
 
+**torch.** A lock holds one torch build, and which build a machine needs
+depends on its GPU. There are two ways to ship it:
+
+* *Locked* (SpyDE): the lock pins torch. On Windows and Linux, setup syncs
+  everything else, then installs that release with `--torch-backend=auto`.
+* *Per machine* (Autopilot): leave torch out of the lock with
+  `[tool.uv] exclude-dependencies = ["torch"]`, which uv records in `uv.lock`.
+  Setup syncs with `--inexact`, so a torch already installed survives an
+  upgrade. It then installs the newest torch the app's specifier allows, built
+  for this machine, but only when torch is missing, does not load, or has no
+  kernels for the GPU. A failed install is reported in the setup overlay, the
+  app starts without torch, and the next launch tries again. From a
+  wheelhouse, torch comes from the wheelhouse folder or not at all: the
+  wheelhouse builder works from the lock, so a site that needs torch offline
+  adds the torch wheels to the folder itself.
+
+A "Fix PyTorch" button calls `installTorchPerMachine` with `{ reinstall: true }`
+for a locked torch, or `{ upgrade: true }` per machine.
+
 **Offline sites.** Unzip the release's wheelhouse into the install
 folder (next to the app's `.exe`) or into `userData/wheelhouse`, or let the
 user choose it with "Install from a folder…" when the online install fails. The first launch then installs with no network:

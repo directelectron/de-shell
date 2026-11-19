@@ -32,6 +32,10 @@ import {
   gpuEnvOverride, platformMatches, fileUrl, checkWheelhouseExtras, venvPython, clearBrokenEnv,
   withoutPythonDownloadLines, uvNetworkEnv,
 } from './pythonEnv.ts'
+import {
+  readTorchSetup, torchInstallArgs, probeTorch, ensureTorchPerMachine, recordEnvStamp,
+} from './pythonEnv.ts'
+import type { CommandRunner } from './pythonEnv.ts'
 
 configureShell({
   appId: 'testapp',
@@ -329,6 +333,271 @@ test('checkWheelhouseExtras names the missing extra', () => {
   assert.throws(() => checkWheelhouseExtras(['gpu'], m), /built without the 'gpu' extra/)
   checkWheelhouseExtras([], m)   // gpu disabled → not effective → fine
   checkWheelhouseExtras(['gpu'], goodManifest)
+})
+
+// ── torch: locked, or installed per machine ─────────────────────────────────
+
+/** A lock that pins torch, as SpyDE's does: the cu124 entry and the PyPI one. */
+const LOCK_PINS_TORCH = `version = 1
+
+[[package]]
+name = "torch"
+version = "2.6.0+cu124"
+source = { registry = "https://download.pytorch.org/whl/cu124" }
+
+[[package]]
+name = "torch"
+version = "2.6.0"
+source = { registry = "https://pypi.org/simple" }
+`
+
+/** A lock written with `[tool.uv] exclude-dependencies = ["torch"]` (uv 0.10). */
+const LOCK_EXCLUDES_TORCH = `version = 1
+revision = 3
+requires-python = ">=3.13"
+
+[options]
+prerelease-mode = "allow"
+
+[manifest]
+excludes = ["torch"]
+
+[[package]]
+name = "testapp"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "six" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", marker = "extra == 'tests'" },
+    { name = "six" },
+    { name = "torch", marker = "extra == 'cuda'", specifier = ">=9" },
+    { name = "torch", specifier = ">=2.4,<3" },
+]
+`
+
+function projectWithLock(lock: string): string {
+  const dir = tempDir('project-')
+  writeFileSync(join(dir, 'uv.lock'), lock)
+  return dir
+}
+
+test('readTorchSetup: a lock that pins torch is the locked two-step', () => {
+  assert.deepEqual(readTorchSetup(projectWithLock(LOCK_PINS_TORCH)),
+    { kind: 'locked', version: '2.6.0' })
+})
+
+test('readTorchSetup: a lock that excludes torch installs it per machine, with its specifier', () => {
+  assert.deepEqual(readTorchSetup(projectWithLock(LOCK_EXCLUDES_TORCH)),
+    { kind: 'per-machine', requirement: 'torch>=2.4,<3' })
+})
+
+test('readTorchSetup: a bare torch dependency, and a multi-line excludes list', () => {
+  const lock = LOCK_EXCLUDES_TORCH
+    .replace('excludes = ["torch"]', 'excludes = [\n    "numpy",\n    "torch",\n]')
+    .replace('{ name = "torch", specifier = ">=2.4,<3" }', '{ name = "torch" }')
+  assert.deepEqual(readTorchSetup(projectWithLock(lock)),
+    { kind: 'per-machine', requirement: 'torch' })
+})
+
+test('readTorchSetup: no torch, another exclusion, or no lock at all is none', () => {
+  assert.deepEqual(readTorchSetup(projectWithLock('version = 1\n')), { kind: 'none' })
+  assert.deepEqual(
+    readTorchSetup(projectWithLock(LOCK_EXCLUDES_TORCH.replace('["torch"]', '["numpy"]'))),
+    { kind: 'none' })
+  // `excludes` outside [manifest] is not uv's exclusion list.
+  assert.deepEqual(
+    readTorchSetup(projectWithLock('version = 1\n\n[options]\nexcludes = ["torch"]\n')),
+    { kind: 'none' })
+  assert.deepEqual(readTorchSetup(emptyDir()), { kind: 'none' })
+})
+
+test('buildSyncArgs syncs inexactly on request, so a per-machine torch survives', () => {
+  assert.deepEqual(buildSyncArgs(['--no-install-project'], [], [], true),
+    ['sync', '--frozen', '--no-dev', '--inexact', '--no-install-project'])
+  assert.ok(!buildSyncArgs([], []).includes('--inexact'))
+})
+
+test('torchInstallArgs keeps the locked pin unchanged', () => {
+  assert.deepEqual(torchInstallArgs({ kind: 'locked', version: '2.6.0' }, 'py'),
+    ['pip', 'install', 'torch==2.6.0', '--torch-backend=auto', '--python', 'py'])
+})
+
+test('torchInstallArgs: per machine, no pin — the backend picks the build, the app config stays out', () => {
+  const args = torchInstallArgs({ kind: 'per-machine', requirement: 'torch' }, 'py')
+  assert.deepEqual(args,
+    ['pip', 'install', '--no-config', 'torch', '--torch-backend=auto', '--python', 'py'])
+  assert.ok(!args!.some((a) => a.startsWith('torch==')))
+})
+
+test('torchInstallArgs: reinstall replaces a damaged torch, upgrade a build without kernels', () => {
+  const args = torchInstallArgs({ kind: 'per-machine', requirement: 'torch' }, 'py', { reinstall: true })
+  assert.equal(args![args!.indexOf('--reinstall-package') + 1], 'torch')
+  const upgrade = torchInstallArgs({ kind: 'per-machine', requirement: 'torch' }, 'py', { upgrade: true })
+  assert.equal(upgrade![upgrade!.indexOf('--upgrade-package') + 1], 'torch')
+  assert.ok(!upgrade!.includes('--reinstall-package'))
+  const locked = torchInstallArgs({ kind: 'locked', version: '2.6.0' }, 'py', { reinstall: true })
+  assert.ok(locked!.includes('--reinstall-package'))
+})
+
+test('torchInstallArgs: from a wheelhouse, offline from the folder and no backend probe', () => {
+  const args = torchInstallArgs({ kind: 'per-machine', requirement: 'torch' }, 'py', { wheelhouse: '/wh' })!
+  for (const flag of ['--offline', '--no-index', '--no-config']) assert.ok(args.includes(flag), flag)
+  assert.equal(args[args.indexOf('--find-links') + 1], '/wh')
+  assert.ok(!args.includes('--torch-backend=auto'))
+})
+
+test('torchInstallArgs is null for an app with no torch', () => {
+  assert.equal(torchInstallArgs({ kind: 'none' }, 'py'), null)
+})
+
+/** A probe runner answering with each code in turn (stdout `out`), recording its calls. */
+function probes(...answers: Array<[number | null, string?]>): CommandRunner & { calls: string[][] } {
+  const calls: string[][] = []
+  const run = async (cmd: string, args: string[]) => {
+    calls.push([cmd, ...args])
+    const [code, out] = answers.shift() ?? [0, '2.9.1']
+    return { code, stdout: out ?? '' }
+  }
+  return Object.assign(run, { calls })
+}
+
+test('probeTorch reads the probe exit code, isolated from PYTHONPATH', async () => {
+  const run = probes([0, '2.9.1+cu128\n'], [3], [4, 'OSError: [WinError 126] c10.dll\n'],
+    [5, '2.6.0+cu124\nNVIDIA GeForce RTX 5090\n'], [null], [1])
+  assert.deepEqual(await probeTorch('py', run), { state: 'usable', version: '2.9.1+cu128' })
+  assert.deepEqual(await probeTorch('py', run), { state: 'missing' })
+  assert.deepEqual(await probeTorch('py', run),
+    { state: 'broken', detail: 'OSError: [WinError 126] c10.dll' })
+  assert.deepEqual(await probeTorch('py', run),
+    { state: 'no-kernels', version: '2.6.0+cu124', device: 'NVIDIA GeForce RTX 5090' })
+  assert.deepEqual(await probeTorch('py', run), { state: 'unknown' })   // timed out
+  assert.deepEqual(await probeTorch('py', run), { state: 'unknown' })   // Python itself failed
+  assert.deepEqual(run.calls[0].slice(0, 3), ['py', '-I', '-c'])
+  assert.deepEqual(await probeTorch('py', async () => { throw new Error('ENOENT') }),
+    { state: 'unknown' })
+})
+
+/** ensureTorchPerMachine with fakes: the uv calls it made and what it narrated. */
+async function ensure(
+  probe: CommandRunner,
+  o: { uvFails?: boolean; wheelhouse?: boolean } = {},
+): Promise<{
+  ready: boolean; uv: string[][]; env: Array<Record<string, string> | undefined>; said: string
+}> {
+  const uv: string[][] = []
+  const env: Array<Record<string, string> | undefined> = []
+  const said: string[] = []
+  const ready = await ensureTorchPerMachine({
+    requirement: 'torch',
+    pythonExe: 'py',
+    wheelhouse: o.wheelhouse ? { dir: '/wh', env: { UV_OFFLINE: '1' } } : null,
+    uv: async (args, _progress, extraEnv) => {
+      uv.push(args)
+      env.push(extraEnv)
+      if (o.uvFails) throw new Error('uv pip exited with code 1')
+    },
+    onProgress: (line) => said.push(line),
+    probe,
+  })
+  return { ready, uv, env, said: said.join('') }
+}
+
+test('ensureTorchPerMachine keeps a usable torch: an upgrade downloads nothing', async () => {
+  const r = await ensure(probes([0, '2.9.1+cu128']))
+  assert.equal(r.ready, true)
+  assert.deepEqual(r.uv, [])
+  assert.match(r.said, /keeping the installed PyTorch 2\.9\.1\+cu128/)
+})
+
+test('ensureTorchPerMachine installs a missing torch for this machine', async () => {
+  const r = await ensure(probes([3], [0, '2.9.1+cu128']))
+  assert.equal(r.ready, true)
+  assert.deepEqual(r.uv,
+    [['pip', 'install', '--no-config', 'torch', '--torch-backend=auto', '--python', 'py']])
+  assert.match(r.said, /installing torch for this machine with --torch-backend=auto/)
+})
+
+test('ensureTorchPerMachine reinstalls a torch that does not load', async () => {
+  const r = await ensure(probes([4, 'ImportError: x'], [0, '2.9.1+cu128']))
+  assert.equal(r.ready, true)
+  assert.ok(r.uv[0].includes('--reinstall-package'))
+  assert.match(r.said, /does not load \(ImportError: x\)/)
+})
+
+test('ensureTorchPerMachine upgrades a torch with no kernels for this GPU (the sm_120 case)', async () => {
+  const r = await ensure(probes([5, '2.6.0+cu124\nNVIDIA GeForce RTX 5090'], [0, '2.11.0+cu128']))
+  assert.equal(r.ready, true)
+  assert.ok(r.uv[0].includes('--upgrade-package'))
+  assert.ok(!r.uv[0].includes('--reinstall-package'))
+  assert.match(r.said, /2\.6\.0\+cu124 has no kernels for NVIDIA GeForce RTX 5090/)
+})
+
+test('ensureTorchPerMachine leaves a torch it could not check alone', async () => {
+  const r = await ensure(probes([null]))
+  assert.equal(r.ready, true)
+  assert.deepEqual(r.uv, [])
+})
+
+test('a failed torch install is said, not thrown, and reports torch not ready', async () => {
+  const r = await ensure(probes([3]), { uvFails: true })
+  assert.equal(r.ready, false)
+  assert.match(r.said,
+    /PyTorch could not be installed \(uv pip exited with code 1\)\. Test App will start without it/)
+})
+
+test('a torch still missing or broken after the install is not ready', async () => {
+  assert.equal((await ensure(probes([3], [3]))).ready, false)
+  assert.equal((await ensure(probes([3], [4, 'ImportError: x']))).ready, false)
+})
+
+test('a build without kernels for this GPU after the install is kept, and says why', async () => {
+  // A card the newer builds dropped (Pascal on cu128): retrying would not help.
+  const r = await ensure(probes([3], [5, '2.11.0+cu128\nNVIDIA TITAN X (Pascal)']))
+  assert.equal(r.ready, true)
+  assert.match(r.said, /PyTorch 2\.11\.0\+cu128 has no kernels for NVIDIA TITAN X \(Pascal\)/)
+  assert.match(r.said, /it will run on the CPU/)
+})
+
+test('from a wheelhouse, torch comes from the folder or not at all, and says so', async () => {
+  const ok = await ensure(probes([3], [0, '2.9.1+cpu']), { wheelhouse: true })
+  assert.equal(ok.ready, true)
+  assert.ok(ok.uv[0].includes('--offline'))
+  assert.deepEqual(ok.env[0], { UV_OFFLINE: '1' })
+
+  const missing = await ensure(probes([3]), { wheelhouse: true, uvFails: true })
+  assert.equal(missing.ready, false)
+  assert.match(missing.said, /the wheelhouse has no torch wheel for this machine/)
+  assert.match(missing.said, /Add the torch wheels for this machine to the wheelhouse folder/)
+
+  // Offline, a torch without kernels for the GPU is kept: there is nothing to fetch.
+  const kept = await ensure(probes([5, 'RTX 5090']), { wheelhouse: true })
+  assert.equal(kept.ready, true)
+  assert.deepEqual(kept.uv, [])
+})
+
+test('recordEnvStamp writes the stamp, or drops it when torch is not ready', () => {
+  const stampFile = join(tempDir('stamp-'), 'python-env', '.testapp-lock-hash')
+  recordEnvStamp(stampFile, 'abc', true)
+  assert.equal(existsSync(stampFile), true)
+  // Not ready: the next launch must run setup again to retry torch.
+  recordEnvStamp(stampFile, 'def', false)
+  assert.equal(existsSync(stampFile), false)
+})
+
+test('the setup window narrates the per-machine torch step', () => {
+  const sync = parseUvLine('[env-setup] running uv sync (as locked, keeping the per-machine torch)')
+  assert.equal(sync?.phase, 'resolving')
+  const install = parseUvLine('[env-setup] installing torch for this machine with --torch-backend=auto')
+  assert.equal(install?.step, 'Installing PyTorch for your GPU')
+  assert.equal(parseUvLine('[env-setup] keeping the installed PyTorch 2.9.1')?.step,
+    'Keeping the installed PyTorch 2.9.1')
+  const failed = parseUvLine('[env-setup] PyTorch could not be installed (x). Test App will start without it.')
+  assert.equal(failed?.phase, 'torch')
+  assert.match(failed?.step ?? '', /could not be installed/)
 })
 
 /** A packaged layout whose managed env already matches the shipped lock, so

@@ -20,7 +20,7 @@ import { app, dialog, ipcMain } from 'electron'
 import { channel, shellConfig } from './config'
 import { runEnvSetupMachine } from './envSetupMachine'
 import type { EnvSetupAnswer } from './envSetupMachine'
-import { readLockedTorchVersion, resolvePythonEnv } from './pythonEnv'
+import { readTorchSetup, resolvePythonEnv } from './pythonEnv'
 import type { EnsureOptions, ResolvedPython } from './pythonEnv'
 import type { ShellWindow } from './window'
 
@@ -58,7 +58,7 @@ export function runEnvSetup(
   listenForAnswers()
   return runEnvSetupMachine<ResolvedPython>({
     initialWheelhouse: opts.wheelhouse ?? null,
-    torch: readLockedTorchVersion(join(opts.resourcesPath, 'python')) !== null,
+    torch: readTorchSetup(join(opts.resourcesPath, 'python')).kind !== 'none',
     run: (wheelhouse, onProgress) => resolvePythonEnv({
       ...opts,
       wheelhouse,

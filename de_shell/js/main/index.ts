@@ -43,10 +43,12 @@ export type { BackendHandlers } from './backendProcess'
 export {
   resolvePythonEnv, managedEnvPaths, venvPython, readLockedTorchVersion,
   installTorchPerMachine, hasNvidiaGpu, readWheelhouse, findWheelhouse,
-  wheelhouseCandidates, lockStamp, buildSyncArgs, offlinePlan,
+  wheelhouseCandidates, lockStamp, buildSyncArgs, offlinePlan, readTorchSetup,
+  torchInstallArgs, probeTorch, ensureTorchPerMachine,
 } from './pythonEnv'
 export type {
   ResolvedPython, EnsureOptions, WheelhouseManifest, CommandRunner, OfflinePlan,
+  TorchSetup, TorchStatus, UvCall,
 } from './pythonEnv'
 
 export { parseUvLine } from './envProgress'

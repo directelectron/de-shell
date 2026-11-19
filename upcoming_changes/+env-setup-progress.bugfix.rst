@@ -1,0 +1,1 @@
+The setup window showed the PyTorch pill again for an app with no torch, and an offline install lost its "Installing from" line, after the first progress line: a progress line now keeps what the start set.

@@ -174,7 +174,12 @@ export function readLockedTorchVersion(projectDir: string): string | null {
  *   recorded as `[manifest] excludes`), so nothing in the lock installs it and
  *   setup installs it for this machine. `requirement` is `torch` plus the
  *   specifier the app declared, if any (`torch>=2.4`).
- * - `none`: the app has no torch.
+ * - `none`: the app has no torch (Ground Crew): no PyTorch step, no pill,
+ *   and the exact sync as before.
+ *
+ * Per machine needs BOTH declarations: the app names torch as a dependency
+ * (the lock's `requires-dist`, copied from its pyproject) and excludes it from
+ * the lock. Torch merely being absent from the lock means the app has none.
  *
  * Read from the lock rather than declared in `configureShell` because the lock
  * is what the sync obeys: the exclusion is the very reason the sync will not
@@ -190,8 +195,16 @@ export function readTorchSetup(projectDir: string): TorchSetup {
   const version = readLockedTorchVersion(projectDir)
   if (version) return { kind: 'locked', version }
   const lock = readSafe(join(projectDir, 'uv.lock'))
-  if (!lockExcludes(lock).includes('torch')) return { kind: 'none' }
-  return { kind: 'per-machine', requirement: declaredTorchRequirement(lock) }
+  const requirement = declaredTorchRequirement(lock)
+  if (!requirement || !lockExcludes(lock).includes('torch')) return { kind: 'none' }
+  return { kind: 'per-machine', requirement }
+}
+
+/** Whether setup has a PyTorch step, so the setup window shows the PyTorch
+ *  pill: a locked or a per-machine torch, never an app with none. The overlay
+ *  and setup take it from the same `readTorchSetup`, so they cannot disagree. */
+export function setupHasTorchStep(projectDir: string): boolean {
+  return readTorchSetup(projectDir).kind !== 'none'
 }
 
 /** Package names in the lock's `[manifest] excludes`, normalized. */
@@ -203,17 +216,18 @@ function lockExcludes(lock: string): string[] {
 
 /**
  * `torch` with the version specifier the app declared for it (the lock's
- * `requires-dist`), so a ceiling the app set still holds without a lock.
- * Entries behind an extra are skipped: setup does not know they apply.
+ * `requires-dist`), so a ceiling the app set still holds without a lock; null
+ * when the app does not declare torch. Entries behind an extra are skipped:
+ * setup does not know they apply.
  */
-function declaredTorchRequirement(lock: string): string {
-  for (const m of lock.matchAll(/\{ name = "torch"(,[^}]*)?\}/g)) {
+function declaredTorchRequirement(lock: string): string | null {
+  for (const m of lock.matchAll(/\{ name = "torch"(,[^}]*)?\s*\}/g)) {
     const rest = m[1] ?? ''
     if (/marker = "[^"]*\bextra\b/.test(rest)) continue
     const specifier = /specifier = "([^"]+)"/.exec(rest)?.[1]
     return specifier ? `torch${specifier}` : 'torch'
   }
-  return 'torch'
+  return null
 }
 
 // ── GPU probe ────────────────────────────────────────────────────────────────
@@ -1142,7 +1156,7 @@ async function setupEnv(o: {
 
   const twoStep =
     (process.platform === 'win32' || process.platform === 'linux') &&
-    readLockedTorchVersion(projectDir) !== null
+    torch.kind === 'locked'
 
   if (twoStep) {
     try {

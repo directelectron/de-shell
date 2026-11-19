@@ -16,7 +16,8 @@ export const ENV_PHASES: ReadonlyArray<{ key: EnvPhase; label: string }> = [
 
 export type PillState = 'done' | 'active' | 'todo'
 
-/** `torch` false leaves out the PyTorch pill, for an app with no torch in its lock. */
+/** `torch` false leaves out the PyTorch pill, for an app with no torch at all
+ *  (a torch kept out of the lock and installed per machine still has the step). */
 export function phasePills(phase: EnvPhase, torch = true) {
   const phases = torch ? ENV_PHASES : ENV_PHASES.filter(p => p.key !== 'torch')
   const active = phase === 'working' ? 'resolving' : phase

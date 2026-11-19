@@ -171,12 +171,17 @@ installed when `nvidia-smi` finds a device. `<APPID>_GPU=0|1` overrides the
 probe either way.
 
 **torch.** A lock holds one torch build, and which build a machine needs
-depends on its GPU. There are two ways to ship it:
+depends on its GPU. Setup tells three cases apart from the lock, and the setup
+window shows the PyTorch step for the last two only:
 
+* *No torch* (Ground Crew): an exact `uv sync`, as for any app.
 * *Locked* (SpyDE): the lock pins torch. On Windows and Linux, setup syncs
-  everything else, then installs that release with `--torch-backend=auto`.
-* *Per machine* (Autopilot): leave torch out of the lock with
-  `[tool.uv] exclude-dependencies = ["torch"]`, which uv records in `uv.lock`.
+  everything else exactly, then installs that release with
+  `--torch-backend=auto`.
+* *Per machine* (Autopilot): name torch as a dependency and leave it out of
+  the lock with `[tool.uv] exclude-dependencies = ["torch"]`, which uv records
+  in `uv.lock`. Both are needed: torch merely absent from the lock means no
+  torch.
   Setup syncs with `--inexact`, so a torch already installed survives an
   upgrade. It then installs the newest torch the app's specifier allows, built
   for this machine, but only when torch is missing, does not load, or has no

@@ -43,7 +43,7 @@ export type { BackendHandlers } from './backendProcess'
 export {
   resolvePythonEnv, managedEnvPaths, venvPython, readLockedTorchVersion,
   installTorchPerMachine, hasNvidiaGpu, readWheelhouse, findWheelhouse,
-  wheelhouseCandidates, lockStamp, buildSyncArgs, offlinePlan, readTorchSetup,
+  wheelhouseCandidates, lockStamp, buildSyncArgs, offlinePlan, readTorchSetup, setupHasTorchStep,
   torchInstallArgs, probeTorch, ensureTorchPerMachine,
 } from './pythonEnv'
 export type {

@@ -34,6 +34,7 @@ import {
 } from './pythonEnv.ts'
 import {
   readTorchSetup, torchInstallArgs, probeTorch, ensureTorchPerMachine, recordEnvStamp,
+  setupHasTorchStep,
 } from './pythonEnv.ts'
 import type { CommandRunner } from './pythonEnv.ts'
 
@@ -413,6 +414,21 @@ test('readTorchSetup: no torch, another exclusion, or no lock at all is none', (
     readTorchSetup(projectWithLock('version = 1\n\n[options]\nexcludes = ["torch"]\n')),
     { kind: 'none' })
   assert.deepEqual(readTorchSetup(emptyDir()), { kind: 'none' })
+})
+
+test('readTorchSetup: excluding torch the app does not declare is none, not per machine', () => {
+  // Only a torch the app names as a dependency is installed per machine.
+  const lock = LOCK_EXCLUDES_TORCH
+    .replace(/^ {4}\{ name = "torch".*\n/gm, '')
+  assert.ok(!lock.includes('name = "torch"'))
+  assert.deepEqual(readTorchSetup(projectWithLock(lock)), { kind: 'none' })
+})
+
+test('the PyTorch step: none for an app with no torch, shown for locked and per machine', () => {
+  // Ground Crew (no torch), SpyDE (locked), Autopilot (per machine).
+  assert.equal(setupHasTorchStep(projectWithLock('version = 1\n')), false)
+  assert.equal(setupHasTorchStep(projectWithLock(LOCK_PINS_TORCH)), true)
+  assert.equal(setupHasTorchStep(projectWithLock(LOCK_EXCLUDES_TORCH)), true)
 })
 
 test('buildSyncArgs syncs inexactly on request, so a per-machine torch survives', () => {

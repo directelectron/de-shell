@@ -1,0 +1,1 @@
+A ``PYTHONPATH`` or ``PYTHONHOME`` set for another Python no longer reaches the app's backend or its environment setup.

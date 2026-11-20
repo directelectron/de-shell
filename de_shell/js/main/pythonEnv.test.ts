@@ -30,7 +30,7 @@ import {
   findUv, resolvePythonEnv, hasNvidiaGpu, readWheelhouse, findWheelhouse,
   wheelhouseCandidates, lockStamp, buildSyncArgs, offlinePlan, effectiveExtras,
   gpuEnvOverride, platformMatches, fileUrl, checkWheelhouseExtras, venvPython, clearBrokenEnv,
-  withoutPythonDownloadLines, uvNetworkEnv,
+  withoutPythonDownloadLines, uvNetworkEnv, envStamp, stagedWheelsDigest,
 } from './pythonEnv.ts'
 import {
   readTorchSetup, torchInstallArgs, probeTorch, ensureTorchPerMachine, recordEnvStamp, torchBackend,
@@ -754,4 +754,49 @@ test('uvNetworkEnv appends to git environment config already set', () => {
 test('the building step names the configured app, not SpyDE', () => {
   const event = parseUvLine('Building test-app @ file:///C:/app')
   assert.equal(event?.step, 'Building the Test App package')
+})
+
+// ── the staged wheels are part of the env stamp ─────────────────────────────
+
+test('envStamp is the lock stamp when no wheels are staged', () => {
+  assert.equal(envStamp('abc', ['gpu'], null), lockStamp('abc', ['gpu']))
+})
+
+test('envStamp appends the wheels digest', () => {
+  assert.equal(envStamp('abc', [], 'd1'), 'abc+wheels=d1')
+})
+
+test('stagedWheelsDigest changes when a wheel is rebuilt under the same name', () => {
+  const projectDir = tempDir('wheels-')
+  mkdirSync(join(projectDir, 'wheels'))
+  const wheel = join(projectDir, 'wheels', 'testapp-1.0.0-py3-none-any.whl')
+  writeFileSync(wheel, 'first build')
+  const first = stagedWheelsDigest(projectDir)
+  writeFileSync(wheel, 'rebuilt with a fix')
+  assert.notEqual(stagedWheelsDigest(projectDir), first)
+  assert.match(first ?? '', /^[0-9a-f]{64}$/)
+})
+
+test('stagedWheelsDigest is null with no wheels folder or no wheels in it', () => {
+  const projectDir = tempDir('no-wheels-')
+  assert.equal(stagedWheelsDigest(projectDir), null)
+  mkdirSync(join(projectDir, 'wheels'))
+  writeFileSync(join(projectDir, 'wheels', 'notes.txt'), '')
+  assert.equal(stagedWheelsDigest(projectDir), null)
+})
+
+test('packaged resolvePythonEnv accepts an env stamped with the same staged wheels', async () => {
+  const { resourcesPath, userData, envDir } = packagedLayout()
+  const projectDir = join(resourcesPath, 'python')
+  mkdirSync(join(projectDir, 'wheels'))
+  writeFileSync(join(projectDir, 'wheels', 'testapp-1.0.0-py3-none-any.whl'), 'build')
+  const lockHash = createHash('sha256').update(Buffer.from('version = 1\n')).digest('hex')
+  writeFileSync(join(envDir, '.testapp-lock-hash'),
+    envStamp(lockHash, [], stagedWheelsDigest(projectDir)))
+
+  const resolved = await resolvePythonEnv({
+    isPackaged: true, resourcesPath, projectRoot: '/unused', userData,
+  })
+
+  assert.deepEqual(resolved.cmd, [venvPython(envDir), '-m', 'testapp'])
 })

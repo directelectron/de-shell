@@ -1,0 +1,1 @@
+A GPU older than sm_70 (Pascal, Maxwell) on a recent driver got a torch build with no kernels for it, because ``--torch-backend=auto`` looks only at the driver version, so every GPU operation failed; setup now reads the compute capability from ``nvidia-smi`` before downloading and installs the cu126 build for such a card, and ``<APPID>_TORCH_BACKEND`` overrides the choice.

@@ -191,6 +191,14 @@ window shows the PyTorch step for the last two only:
   wheelhouse builder works from the lock, so a site that needs torch offline
   adds the torch wheels to the folder itself.
 
+**Which torch build.** Setup chooses `--torch-backend` before it downloads
+anything. uv's `auto` looks only at the driver version, so a recent driver on
+a card older than sm_70 (Pascal, Maxwell) would get a build with no kernels
+for it. Setup therefore reads the compute capability from `nvidia-smi` first:
+below 7.0 it installs cu126, the newest build that still supports those cards,
+and otherwise `auto`. `<APPID>_TORCH_BACKEND` (for example `cu126` or `cpu`)
+overrides the choice.
+
 A "Fix PyTorch" button calls `installTorchPerMachine` with `{ reinstall: true }`
 for a locked torch, or `{ upgrade: true }` per machine.
 

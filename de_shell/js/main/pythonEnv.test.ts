@@ -33,7 +33,7 @@ import {
   withoutPythonDownloadLines, uvNetworkEnv,
 } from './pythonEnv.ts'
 import {
-  readTorchSetup, torchInstallArgs, probeTorch, ensureTorchPerMachine, recordEnvStamp,
+  readTorchSetup, torchInstallArgs, probeTorch, ensureTorchPerMachine, recordEnvStamp, torchBackend,
   setupHasTorchStep,
 } from './pythonEnv.ts'
 import type { CommandRunner } from './pythonEnv.ts'
@@ -197,6 +197,32 @@ test('hasNvidiaGpu never throws and asks for a ~5 s timeout', async () => {
   let seen: unknown[] = []
   await hasNvidiaGpu(async (cmd, args, t) => { seen = [cmd, args, t]; return { code: 1, stdout: '' } })
   assert.deepEqual(seen, ['nvidia-smi', ['-L'], 5000])
+})
+
+test('torchBackend: cu126 for a card older than sm_70, auto otherwise', async () => {
+  const none = {}
+  assert.equal(await torchBackend(runner(0, '6.1\n'), none), 'cu126')          // TITAN X (Pascal)
+  assert.equal(await torchBackend(runner(0, '8.6\n'), none), 'auto')
+  assert.equal(await torchBackend(runner(0, '12.0\n'), none), 'auto')          // RTX 5090
+  assert.equal(await torchBackend(runner(0, '8.6\n6.1\n'), none), 'cu126')    // the oldest decides
+})
+
+test('torchBackend: no driver or unreadable output leaves it to auto, and never throws', async () => {
+  const none = {}
+  assert.equal(await torchBackend(runner(null), none), 'auto')
+  assert.equal(await torchBackend(runner(9, '6.1'), none), 'auto')
+  assert.equal(await torchBackend(runner(0, 'Field "compute_cap" is not a valid field'), none), 'auto')
+  assert.equal(await torchBackend(async () => { throw new Error('ENOENT') }, none), 'auto')
+  let seen: unknown[] = []
+  await torchBackend(async (cmd, args, t) => { seen = [cmd, args, t]; return { code: 1, stdout: '' } }, none)
+  assert.deepEqual(seen, ['nvidia-smi', ['--query-gpu=compute_cap', '--format=csv,noheader'], 5000])
+})
+
+test('torchBackend: <APPID>_TORCH_BACKEND beats the probe', async () => {
+  let probed = false
+  const run = async () => { probed = true; return { code: 0, stdout: '6.1' } }
+  assert.equal(await torchBackend(run, { TESTAPP_TORCH_BACKEND: ' cpu ' }), 'cpu')
+  assert.equal(probed, false)
 })
 
 test('gpuEnvOverride reads <APPID>_GPU', () => {
@@ -500,7 +526,7 @@ test('probeTorch reads the probe exit code, isolated from PYTHONPATH', async () 
 /** ensureTorchPerMachine with fakes: the uv calls it made and what it narrated. */
 async function ensure(
   probe: CommandRunner,
-  o: { uvFails?: boolean; wheelhouse?: boolean } = {},
+  o: { uvFails?: boolean; wheelhouse?: boolean; backend?: string } = {},
 ): Promise<{
   ready: boolean; uv: string[][]; env: Array<Record<string, string> | undefined>; said: string
 }> {
@@ -518,6 +544,7 @@ async function ensure(
     },
     onProgress: (line) => said.push(line),
     probe,
+    backend: o.backend ?? 'auto',
   })
   return { ready, uv, env, said: said.join('') }
 }
@@ -535,6 +562,19 @@ test('ensureTorchPerMachine installs a missing torch for this machine', async ()
   assert.deepEqual(r.uv,
     [['pip', 'install', '--no-config', 'torch', '--torch-backend=auto', '--python', 'py']])
   assert.match(r.said, /installing torch for this machine with --torch-backend=auto/)
+})
+
+test('ensureTorchPerMachine installs the build torchBackend chose (cu126 on a Pascal card)', async () => {
+  const r = await ensure(probes([3], [0, '2.14.1+cu126']), { backend: 'cu126' })
+  assert.equal(r.ready, true)
+  assert.deepEqual(r.uv,
+    [['pip', 'install', '--no-config', 'torch', '--torch-backend=cu126', '--python', 'py']])
+  assert.match(r.said, /with --torch-backend=cu126/)
+})
+
+test('torchInstallArgs passes the chosen backend for a locked pin too', () => {
+  assert.deepEqual(torchInstallArgs({ kind: 'locked', version: '2.6.0' }, 'py', { backend: 'cu126' }),
+    ['pip', 'install', 'torch==2.6.0', '--torch-backend=cu126', '--python', 'py'])
 })
 
 test('ensureTorchPerMachine reinstalls a torch that does not load', async () => {

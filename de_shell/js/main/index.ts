@@ -44,7 +44,7 @@ export {
   resolvePythonEnv, managedEnvPaths, venvPython, readLockedTorchVersion,
   installTorchPerMachine, hasNvidiaGpu, readWheelhouse, findWheelhouse,
   wheelhouseCandidates, lockStamp, buildSyncArgs, offlinePlan, readTorchSetup, setupHasTorchStep,
-  torchInstallArgs, probeTorch, ensureTorchPerMachine,
+  torchInstallArgs, probeTorch, ensureTorchPerMachine, torchBackend,
 } from './pythonEnv'
 export type {
   ResolvedPython, EnsureOptions, WheelhouseManifest, CommandRunner, OfflinePlan,

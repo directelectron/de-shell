@@ -12,6 +12,23 @@ change to the sidecar protocol bumps the minor.
 
 .. towncrier release notes start
 
+0.5.1 (2026-11-20)
+==================
+
+New Features
+------------
+
+- ``installTorchPerMachine`` works for a torch left out of the lock (no ``torch==`` pin) and takes ``{ reinstall: true }`` or ``{ upgrade: true }`` so a "Fix PyTorch" button can replace a torch of the wrong build, which uv otherwise keeps. (`#45 <https://github.com/directelectron/de-shell/pull/45>`_)
+
+
+Bug Fixes
+---------
+
+- The setup window showed the PyTorch pill again for an app with no torch, and an offline install lost its "Installing from" line, after the first progress line: a progress line now keeps what the start set. (`#45 <https://github.com/directelectron/de-shell/pull/45>`_)
+- A GPU older than sm_70 (Pascal, Maxwell) on a recent driver got a torch build with no kernels for it, because ``--torch-backend=auto`` looks only at the driver version, so every GPU operation failed; setup now reads the compute capability from ``nvidia-smi`` before downloading and installs the cu126 build for such a card, and ``<APPID>_TORCH_BACKEND`` overrides the choice. (`#45 <https://github.com/directelectron/de-shell/pull/45>`_)
+- An app that leaves torch out of its lock (``[tool.uv] exclude-dependencies = ["torch"]``) got no torch on its first run and lost the one it had on every upgrade; setup now keeps an installed torch (an ``--inexact`` sync) and installs one for the machine's GPU with ``--torch-backend=auto`` only when it is missing, does not load, or has no kernels for the GPU, and a failed install is reported in the setup overlay while the app still starts and the next launch retries. (`#45 <https://github.com/directelectron/de-shell/pull/45>`_)
+
+
 0.5.0 (2026-11-16)
 ==================
 

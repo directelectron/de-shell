@@ -1,1 +1,0 @@
-``installTorchPerMachine`` works for a torch left out of the lock (no ``torch==`` pin) and takes ``{ reinstall: true }`` or ``{ upgrade: true }`` so a "Fix PyTorch" button can replace a torch of the wrong build, which uv otherwise keeps.

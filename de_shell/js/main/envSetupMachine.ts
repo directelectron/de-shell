@@ -119,7 +119,8 @@ export interface MachineDeps<R> {
   /** Native folder picker; null when cancelled. */
   pickFolder: () => Promise<string | null>
   quit: () => void
-  /** False when the app's lock has no torch, so the overlay drops that step. */
+  /** False when the app has no torch (`setupHasTorchStep`), so the overlay
+   *  drops that step. */
   torch?: boolean
   /** Wheelhouse to start with (an app that already knows the machine is offline). */
   initialWheelhouse?: string | null

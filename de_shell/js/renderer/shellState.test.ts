@@ -13,6 +13,7 @@ import {
   shellReducer, shellInitialState, toShellAction, LOG_MAX, STREAM_MAX,
   type ShellState, type LogEntry,
 } from './shellState.ts'
+import { phasePills } from './envSetupView.ts'
 
 /** A state shaped like an app's: the shell's fields plus one of its own. */
 interface AppState extends ShellState { mine: number }
@@ -171,6 +172,40 @@ describe('toShellAction', () => {
     assert.deepEqual(start, { type: 'ENV_SETUP_START', wheelhouse: null, torch: false })
     assert.equal(shellReducer(appState, start).envSetup?.torch, false)
     assert.equal(shellReducer(appState, { type: 'ENV_SETUP_START' }).envSetup?.torch, true)
+  })
+
+  test('a progress line keeps the torch and wheelhouse the start set (#44)', () => {
+    let s = shellReducer(appState, toShellAction(
+      { type: 'env_setup', state: 'start', torch: false, wheelhouse: 'wheels' })!)
+    s = shellReducer(s, {
+      type: 'ENV_SETUP_PROGRESS', phase: 'resolving', step: 'Resolving', percent: null,
+      raw: 'Resolved 120 packages',
+    })
+    assert.equal(s.envSetup?.torch, false)
+    assert.equal(s.envSetup?.wheelhouse, 'wheels')
+    assert.equal(s.envSetup?.step, 'Resolving')
+    assert.deepEqual(s.envSetup?.lines, ['Resolved 120 packages'])
+  })
+
+  test('the PyTorch pill through progress and a failure: none, locked, per machine', () => {
+    // What main sends as `torch` for each kind (setupHasTorchStep).
+    const cases = [['no torch', false], ['locked torch', true], ['per-machine torch', true]] as const
+    for (const [kind, torch] of cases) {
+      let s = shellReducer(appState, toShellAction({ type: 'env_setup', state: 'start', torch })!)
+      s = shellReducer(s, {
+        type: 'ENV_SETUP_PROGRESS', phase: 'downloading', step: 'Downloading six', percent: 40,
+        raw: 'Downloading six',
+      })
+      // A progress line that parses to nothing keeps the phase and step too.
+      s = shellReducer(s, { type: 'ENV_SETUP_PROGRESS', percent: null, raw: '…' })
+      assert.equal(s.envSetup?.phase, 'downloading', kind)
+      assert.equal(s.envSetup?.step, 'Downloading six', kind)
+      const pill = () => phasePills(s.envSetup!.phase, s.envSetup!.torch ?? true)
+        .some((p) => p.key === 'torch')
+      assert.equal(pill(), torch, kind)
+      s = shellReducer(s, toShellAction({ type: 'env_setup', state: 'error', message: 'x' })!)
+      assert.equal(pill(), torch, `${kind}, after a failure`)
+    }
   })
 
   test('maps the chrome messages', () => {

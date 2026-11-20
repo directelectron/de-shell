@@ -13,13 +13,22 @@
  * user. Instead the first-run install is two-step:
  *   1. `uv sync --frozen --no-dev --no-install-package torch`  (lock-exact for
  *      everything EXCEPT torch)
- *   2. `uv pip install torch==<locked release> --torch-backend=auto
- *       --python <env python>`  (uv probes the machine's driver and picks the
- *      matching CUDA / CPU wheel — verified: `--python` is required, uv pip
+ *   2. `uv pip install torch==<locked release> --torch-backend=<backend>
+ *       --python <env python>`  (`torchBackend`: cu126 below sm_70, else `auto`,
+ *      where uv probes the machine's driver and picks the matching CUDA / CPU wheel — verified: `--python` is required, uv pip
  *      IGNORES UV_PROJECT_ENVIRONMENT; needs uv >= 0.5, the staged uv is 0.10.x)
  * Any step-2 failure falls back to the plain full `uv sync` (the old cu124
  * path), so the working install path can never regress. macOS keeps the plain
  * sync (no CUDA pin there; PyPI torch already carries MPS).
+ *
+ * An app can instead leave torch out of its lock altogether
+ * (`[tool.uv] exclude-dependencies = ["torch"]`, which uv records in the lock
+ * as `[manifest] excludes`): a lock holds one build, and which build a machine
+ * needs depends on its GPU. Setup then syncs INEXACTLY, so a torch already in
+ * the env survives an upgrade instead of being removed and downloaded again,
+ * and installs torch for this machine (`torchBackend`) only when it is missing or
+ * cannot run here — see `ensureTorchPerMachine`. Every platform, since nothing
+ * else would install it.
  *
  * Extras: `ShellConfig.pythonExtras` are always installed (`--extra X`) and
  * `gpuExtras` only when an NVIDIA GPU is found (`hasNvidiaGpu`). The effective
@@ -158,6 +167,69 @@ export function readLockedTorchVersion(projectDir: string): string | null {
   return pick.version.split('+')[0]   // "2.6.0+cu124" → "2.6.0"
 }
 
+/**
+ * How setup installs torch, read from `<projectDir>/uv.lock`:
+ * - `locked`: the lock pins torch; the two-step install pins that release.
+ * - `per-machine`: the lock EXCLUDES torch (`[tool.uv] exclude-dependencies`,
+ *   recorded as `[manifest] excludes`), so nothing in the lock installs it and
+ *   setup installs it for this machine. `requirement` is `torch` plus the
+ *   specifier the app declared, if any (`torch>=2.4`).
+ * - `none`: the app has no torch (Ground Crew): no PyTorch step, no pill,
+ *   and the exact sync as before.
+ *
+ * Per machine needs BOTH declarations: the app names torch as a dependency
+ * (the lock's `requires-dist`, copied from its pyproject) and excludes it from
+ * the lock. Torch merely being absent from the lock means the app has none.
+ *
+ * Read from the lock rather than declared in `configureShell` because the lock
+ * is what the sync obeys: the exclusion is the very reason the sync will not
+ * install torch, it ships in every payload, and its hash already drives the
+ * re-sync. A second declaration could disagree with it.
+ */
+export type TorchSetup =
+  | { kind: 'locked'; version: string }
+  | { kind: 'per-machine'; requirement: string }
+  | { kind: 'none' }
+
+export function readTorchSetup(projectDir: string): TorchSetup {
+  const version = readLockedTorchVersion(projectDir)
+  if (version) return { kind: 'locked', version }
+  const lock = readSafe(join(projectDir, 'uv.lock'))
+  const requirement = declaredTorchRequirement(lock)
+  if (!requirement || !lockExcludes(lock).includes('torch')) return { kind: 'none' }
+  return { kind: 'per-machine', requirement }
+}
+
+/** Whether setup has a PyTorch step, so the setup window shows the PyTorch
+ *  pill: a locked or a per-machine torch, never an app with none. The overlay
+ *  and setup take it from the same `readTorchSetup`, so they cannot disagree. */
+export function setupHasTorchStep(projectDir: string): boolean {
+  return readTorchSetup(projectDir).kind !== 'none'
+}
+
+/** Package names in the lock's `[manifest] excludes`, normalized. */
+function lockExcludes(lock: string): string[] {
+  const manifest = /^\[manifest\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(lock)?.[1] ?? ''
+  const list = /^excludes\s*=\s*\[([^\]]*)\]/m.exec(manifest)?.[1] ?? ''
+  return [...list.matchAll(/"([^"]+)"/g)].map((m) => m[1].toLowerCase().replace(/[_.]+/g, '-'))
+}
+
+/**
+ * `torch` with the version specifier the app declared for it (the lock's
+ * `requires-dist`), so a ceiling the app set still holds without a lock; null
+ * when the app does not declare torch. Entries behind an extra are skipped:
+ * setup does not know they apply.
+ */
+function declaredTorchRequirement(lock: string): string | null {
+  for (const m of lock.matchAll(/\{ name = "torch"(,[^}]*)?\s*\}/g)) {
+    const rest = m[1] ?? ''
+    if (/marker = "[^"]*\bextra\b/.test(rest)) continue
+    const specifier = /specifier = "([^"]+)"/.exec(rest)?.[1]
+    return specifier ? `torch${specifier}` : 'torch'
+  }
+  return null
+}
+
 // ── GPU probe ────────────────────────────────────────────────────────────────
 
 /** Runs a command and reports its exit code + stdout. Injectable so the probe's
@@ -203,6 +275,37 @@ export async function hasNvidiaGpu(run: CommandRunner = defaultRunner): Promise<
   } catch { return false }
 }
 
+/**
+ * The `--torch-backend` for this machine, chosen BEFORE anything downloads.
+ *
+ * uv's `auto` reads only the driver version and takes the newest CUDA build
+ * that driver runs. A recent driver on an older card then gets a build with no
+ * kernels for it: the cu128+ builds dropped everything below sm_70 (Pascal,
+ * Maxwell), yet `torch.cuda.is_available()` still says True and the first
+ * kernel fails. So the compute capability is read first, and a card below 7.0
+ * gets cu126, the newest build that still carries sm_50–sm_61. With several
+ * GPUs the oldest one decides, so every device can run.
+ *
+ * `<APPID>_TORCH_BACKEND` (any value uv takes: `cu126`, `cpu`, …) beats the
+ * probe. No `nvidia-smi`, or output it cannot parse, leaves the choice to
+ * `auto`. Never throws.
+ */
+export async function torchBackend(
+  run: CommandRunner = defaultRunner, env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const override = (env[`${envPrefix()}_TORCH_BACKEND`] ?? '').trim()
+  if (override) return override
+  try {
+    const { code, stdout } = await run(
+      'nvidia-smi', ['--query-gpu=compute_cap', '--format=csv,noheader'], 5000)
+    if (code !== 0) return 'auto'
+    const capabilities = (stdout ?? '').split(/\r?\n/).map((l) => Number.parseFloat(l))
+      .filter((c) => Number.isFinite(c))
+    if (capabilities.length && Math.min(...capabilities) < 7) return 'cu126'
+  } catch { /* no driver: auto falls back to the CPU build */ }
+  return 'auto'
+}
+
 /** The `<APPID>_GPU` override: '0'/'false' → false, '1'/'true' → true, else
  *  undefined (no override). */
 export function gpuEnvOverride(env: NodeJS.ProcessEnv = process.env): boolean | undefined {
@@ -238,12 +341,14 @@ export function extraArgs(extras: string[]): string[] {
 }
 
 /** Every `uv sync` argv in one place so the torch two-step and the plain
- *  fallback cannot drift apart on extras. `skipPackages` → `--no-install-package`. */
+ *  fallback cannot drift apart on extras. `skipPackages` → `--no-install-package`.
+ *  `inexact` keeps packages the lock does not name (a per-machine torch). */
 export function buildSyncArgs(
-  projectArgs: string[], extras: string[], skipPackages: string[] = [],
+  projectArgs: string[], extras: string[], skipPackages: string[] = [], inexact = false,
 ): string[] {
   return [
-    'sync', '--frozen', '--no-dev', ...projectArgs, ...extraArgs(extras),
+    'sync', '--frozen', '--no-dev', ...(inexact ? ['--inexact'] : []),
+    ...projectArgs, ...extraArgs(extras),
     ...skipPackages.flatMap((p) => ['--no-install-package', p]),
   ]
 }
@@ -471,14 +576,11 @@ export async function resolvePythonEnv(opts: EnsureOptions): Promise<ResolvedPyt
     if (clearBrokenEnv(envDir)) {
       opts.onProgress?.('[env-setup] removed an incomplete Python environment left by an earlier install\n')
     }
-    await setupEnv({
+    const torchReady = await setupEnv({
       projectDir: bundledProject, envDir, appVersion: readAppVersion(bundledProject),
       extras, wheelhouse: found, onProgress: opts.onProgress,
     })
-    try {
-      mkdirSync(envDir, { recursive: true })
-      writeFileSync(stampFile, stamp, 'utf8')
-    } catch { /* a missing stamp just forces a re-sync next launch */ }
+    recordEnvStamp(stampFile, stamp, torchReady)
   }
 
   // Run from the ENV, not the bundled project: a working directory is an open
@@ -490,6 +592,23 @@ export async function resolvePythonEnv(opts: EnsureOptions): Promise<ResolvedPyt
   // wants the project directory: the app is installed into the env as a wheel,
   // and what it reads from the bundle it reads by absolute path.
   return { cmd: [pythonExe, '-m', cfg.pythonModule], cwd: envDir }
+}
+
+/**
+ * Write the env stamp after a setup — or, when the per-machine torch could not
+ * be installed, remove it, so the next launch runs setup again and retries
+ * torch instead of starting on an env that lacks it with nothing to say so.
+ * The rest of that env is complete: the backend starts either way.
+ */
+export function recordEnvStamp(stampFile: string, stamp: string, torchReady: boolean): void {
+  try {
+    if (!torchReady) {
+      rmSync(stampFile, { force: true })
+      return
+    }
+    mkdirSync(dirname(stampFile), { recursive: true })
+    writeFileSync(stampFile, stamp, 'utf8')
+  } catch { /* a missing stamp just forces a re-sync next launch */ }
 }
 
 /**
@@ -692,29 +811,220 @@ export function withoutPythonDownloadLines(onProgress?: (line: string) => void):
 }
 
 /**
- * Install the locked torch release into the managed env with the backend
- * resolved for THIS machine (`--torch-backend=auto`: uv probes the NVIDIA
- * driver and picks the matching cuXXX wheel, or the much smaller CPU wheel when
- * no GPU is present). Shared by first-run setup (step 2) and the GPU-triage
- * "Fix PyTorch install" handler. Throws on failure (caller decides fallback).
+ * uv's argv to install torch into the env at `pythonExe`, or null when the app
+ * has no torch.
+ *
+ * Online, `--torch-backend` picks the build: `backend` from `torchBackend`
+ * (cu126 for a card older than sm_70), otherwise `auto`, where uv probes the
+ * NVIDIA driver for the matching cuXXX wheel, or the much smaller CPU wheel
+ * when there is no GPU. A
+ * locked torch is pinned to its release; a per-machine one takes the newest
+ * release the app's specifier allows, so a new GPU gets a build with kernels
+ * for it. The per-machine install runs with `--no-config`: the app's `[tool.uv]`
+ * settings are for its lock (`prerelease = "allow"` would let a torch release
+ * candidate in), and uv's own configuration has no say over this one package.
+ *
+ * From a wheelhouse there is no index to probe, so the per-machine torch is
+ * whichever torch wheel the folder holds.
+ *
+ * An installed torch already satisfies the requirement, so uv keeps it unless
+ * told otherwise: `reinstall` replaces one whose files are damaged with the
+ * same release, `upgrade` moves one without kernels for this GPU to the newest
+ * build for this machine — a no-op when it already is that build.
  */
-export function installTorchPerMachine(
+export function torchInstallArgs(
+  setup: TorchSetup,
+  pythonExe: string,
+  o: { reinstall?: boolean; upgrade?: boolean; wheelhouse?: string; backend?: string } = {},
+): string[] | null {
+  if (setup.kind === 'none') return null
+  const backend = `--torch-backend=${o.backend ?? 'auto'}`
+  const reinstall = [
+    ...(o.reinstall ? ['--reinstall-package', 'torch'] : []),
+    ...(o.upgrade ? ['--upgrade-package', 'torch'] : []),
+  ]
+  if (setup.kind === 'locked') {
+    return ['pip', 'install', `torch==${setup.version}`, backend,
+            ...reinstall, '--python', pythonExe]
+  }
+  const source = o.wheelhouse
+    ? ['--offline', '--no-index', '--find-links', o.wheelhouse]
+    : [backend]
+  return ['pip', 'install', '--no-config', setup.requirement, ...source, ...reinstall,
+          '--python', pythonExe]
+}
+
+/**
+ * Install torch into the managed env with the backend resolved for THIS
+ * machine. Shared by first-run setup and the GPU-triage "Fix PyTorch install"
+ * handler — which should pass `{ reinstall: true }` (a locked pin) or
+ * `{ upgrade: true }` (per machine), since a torch of the wrong build already
+ * satisfies the requirement. Works whether the lock pins torch
+ * or excludes it (see `readTorchSetup`). Throws on failure (caller decides
+ * fallback).
+ */
+export async function installTorchPerMachine(
   projectDir: string,
   envDir: string,
   onProgress?: (line: string) => void,
+  options: { reinstall?: boolean; upgrade?: boolean } = {},
 ): Promise<void> {
-  const torchVersion = readLockedTorchVersion(projectDir)
-  if (!torchVersion) {
-    return Promise.reject(new Error('could not read the locked torch version from uv.lock'))
-  }
-  onProgress?.(`[env-setup] installing torch==${torchVersion} with --torch-backend=auto\n`)
+  const setup = readTorchSetup(projectDir)
+  if (setup.kind === 'none') throw new Error('uv.lock neither pins nor excludes torch')
+  const backend = await torchBackend()
+  const args = torchInstallArgs(setup, venvPython(envDir), { ...options, backend })!
+  onProgress?.(setup.kind === 'locked'
+    ? `[env-setup] installing torch==${setup.version} with --torch-backend=${backend}\n`
+    : `[env-setup] installing ${setup.requirement} for this machine with --torch-backend=${backend}\n`)
   return runUv(
-    projectDir, envDir,
-    ['pip', 'install', `torch==${torchVersion}`, '--torch-backend=auto',
-     '--python', venvPython(envDir)],
+    projectDir, envDir, args,
     '',   // no scm pretend-version needed for a plain pip install
     onProgress,
   )
+}
+
+/**
+ * Asks the env's Python whether torch is there and can run, without the
+ * caller importing anything. Exit codes: 0 usable (prints the version), 3 not
+ * installed, 4 installed but its import fails, 5 a CUDA GPU this build has no
+ * kernels for (2.6.0+cu124 on an sm_120 card). `-I`: no PYTHONPATH, user site
+ * or working directory can stand in for the env's own torch.
+ */
+const TORCH_PROBE = [
+  'import importlib.util, sys',
+  'if importlib.util.find_spec("torch") is None: sys.exit(3)',
+  'try:',
+  '    import torch',
+  'except Exception as error:',
+  '    print(f"{type(error).__name__}: {error}"); sys.exit(4)',
+  'print(torch.__version__)',
+  'try:',
+  '    if torch.cuda.is_available():',
+  '        major, minor = torch.cuda.get_device_capability(0)',
+  '        device = major * 10 + minor',
+  '        def number(arch): return int("".join(c for c in arch if c.isdigit()))',
+  '        built = [a.split("_", 1) for a in torch.cuda.get_arch_list()]',
+  // A cubin runs on its own major at an equal or higher minor; PTX JITs upward.
+  '        if not any((kind == "sm" and number(n) // 10 == major and number(n) <= device)',
+  '                   or (kind == "compute" and number(n) <= device) for kind, n in built):',
+  '            print(torch.cuda.get_device_name(0)); sys.exit(5)',
+  'except Exception:',
+  '    pass',
+].join('\n')
+
+export type TorchStatus =
+  | { state: 'usable'; version: string }
+  | { state: 'missing' }
+  | { state: 'broken'; detail: string }
+  | { state: 'no-kernels'; version: string; device: string }
+  | { state: 'unknown' }
+
+/**
+ * Is torch in the env at `pythonExe`, and can it run here? Never throws. A
+ * probe that could not finish (a hung import on a cold disk, a Python that will
+ * not start) is `unknown`, which setup treats as "leave it alone" rather than
+ * re-downloading gigabytes on a guess.
+ */
+export async function probeTorch(
+  pythonExe: string, run: CommandRunner = defaultRunner,
+): Promise<TorchStatus> {
+  try {
+    const { code, stdout } = await run(pythonExe, ['-I', '-c', TORCH_PROBE], 180_000)
+    const lines = (stdout ?? '').trim().split(/\r?\n/)
+    const last = lines.at(-1)?.trim() ?? ''
+    if (code === 0) return { state: 'usable', version: last }
+    if (code === 3) return { state: 'missing' }
+    if (code === 4) return { state: 'broken', detail: last }
+    if (code === 5) return { state: 'no-kernels', version: lines[0]?.trim() ?? '', device: last }
+    return { state: 'unknown' }
+  } catch { return { state: 'unknown' } }
+}
+
+/** A uv invocation against the managed env: argv after `uv`, progress, extra env. */
+export type UvCall = (
+  args: string[], onProgress?: (line: string) => void, extraEnv?: Record<string, string>,
+) => Promise<void>
+
+/**
+ * The per-machine torch step, run after the env is otherwise complete: keep a
+ * torch that runs here, install one when it is missing, and replace one that
+ * fails to import or has no kernels for this GPU. Narrated through
+ * `onProgress`. Returns whether torch is ready; a failed install is SAID, never
+ * thrown, so the backend still starts (and names what it lacks) and the caller
+ * drops the env stamp to try again next launch.
+ *
+ * From a wheelhouse, torch comes from that folder or not at all — an offline
+ * install never reaches for the network.
+ */
+export async function ensureTorchPerMachine(o: {
+  requirement: string
+  pythonExe: string
+  wheelhouse: { dir: string; env: Record<string, string> } | null
+  uv: UvCall
+  onProgress?: (line: string) => void
+  probe?: CommandRunner
+  /** The `--torch-backend`; read with `torchBackend` when an online install
+   *  is needed and none is given. */
+  backend?: string
+}): Promise<boolean> {
+  const say = (line: string) => o.onProgress?.(`[env-setup] ${line}\n`)
+  const app = shellConfig().appName
+  const setup: TorchSetup = { kind: 'per-machine', requirement: o.requirement }
+  say('checking the installed PyTorch')
+  const before = await probeTorch(o.pythonExe, o.probe)
+  if (before.state === 'usable') {
+    say(`keeping the installed PyTorch ${before.version}`)
+    return true
+  }
+  if (before.state === 'unknown') {
+    say('could not check the installed PyTorch; keeping what is there')
+    return true
+  }
+  if (before.state === 'no-kernels' && o.wheelhouse) {
+    say(`keeping the installed PyTorch ${before.version}: it has no kernels for ` +
+        `${before.device}, and an offline install cannot fetch another build`)
+    return true
+  }
+  if (before.state === 'broken') say(`the installed PyTorch does not load (${before.detail})`)
+  if (before.state === 'no-kernels') {
+    say(`the installed PyTorch ${before.version} has no kernels for ${before.device}`)
+  }
+
+  const backend = o.wheelhouse ? undefined : (o.backend ?? await torchBackend())
+  const args = torchInstallArgs(setup, o.pythonExe, {
+    reinstall: before.state === 'broken', upgrade: before.state === 'no-kernels',
+    wheelhouse: o.wheelhouse?.dir, backend,
+  })!
+  say(o.wheelhouse
+    ? `installing ${o.requirement} from the wheelhouse`
+    : `installing ${o.requirement} for this machine with --torch-backend=${backend}`)
+  const failed = (why: string) => {
+    say(`PyTorch could not be installed (${why}). ${app} will start without it. ` + (o.wheelhouse
+      ? 'Add the torch wheels for this machine to the wheelhouse folder, or remove the ' +
+        'wheelhouse to install online, and restart.'
+      : 'Check the internet connection and restart to try again.'))
+    return false
+  }
+  try {
+    await o.uv(args, o.onProgress, o.wheelhouse?.env)
+  } catch (err) {
+    return failed(o.wheelhouse
+      ? 'the wheelhouse has no torch wheel for this machine'
+      : ((err as Error)?.message ?? String(err)))
+  }
+  const after = await probeTorch(o.pythonExe, o.probe)
+  if (after.state === 'missing') return failed('it is still missing after the install')
+  if (after.state === 'broken') return failed(`it does not load: ${after.detail}`)
+  if (after.state === 'no-kernels') {
+    // The newest build uv offers this machine still lacks the GPU (a card newer
+    // than any build, or one the newer builds dropped). Retrying on every launch
+    // would not change that, so it is said and setup carries on.
+    say(`PyTorch ${after.version} has no kernels for ${after.device}, and uv has no ` +
+        `newer build for this machine; it will run on the CPU. Set ${envPrefix()}_TORCH_BACKEND ` +
+        '(for example cu126) to choose the build.')
+  }
+  say('per-machine torch install complete')
+  return true
 }
 
 /** The pre-built app wheel staged by bundle-python.mjs at <projectDir>/wheels/
@@ -802,6 +1112,11 @@ function installAppWheel(
  * the app is installed from the wheel afterwards — so NOTHING is built from the
  * read-only source tree. In dev (no staged wheel) the project installs from
  * source as before. Logs which path ran to the progress stream.
+ *
+ * A lock that EXCLUDES torch (`readTorchSetup`'s `per-machine`) syncs
+ * inexactly, installs the app, and only then runs `ensureTorchPerMachine`, on
+ * every platform and from a wheelhouse too. Resolves whether torch is ready —
+ * always true for the other two kinds.
  */
 async function setupEnv(o: {
   projectDir: string
@@ -810,8 +1125,15 @@ async function setupEnv(o: {
   extras: string[]
   wheelhouse: { dir: string; manifest: WheelhouseManifest } | null
   onProgress?: (line: string) => void
-}): Promise<void> {
+}): Promise<boolean> {
   const { projectDir, envDir, appVersion, extras, wheelhouse, onProgress } = o
+  const torch = readTorchSetup(projectDir)
+  const torchPerMachine = (offline: { dir: string; env: Record<string, string> } | null) =>
+    torch.kind !== 'per-machine' ? true : ensureTorchPerMachine({
+      requirement: torch.requirement, pythonExe: venvPython(envDir), wheelhouse: offline,
+      uv: (args, progress, extraEnv) => runUv(projectDir, envDir, args, '', progress, extraEnv),
+      onProgress,
+    })
   const wheel = stagedAppWheel(projectDir)
   const memberWheels = stagedMemberWheels(projectDir, wheel)
   // With a staged wheel, tell uv sync NOT to touch the project (the app builds
@@ -854,17 +1176,30 @@ async function setupEnv(o: {
     }
     if (wheel) await installAppWheel(projectDir, envDir, wheel, onProgress, plan.env)
     onProgress?.('[env-setup] offline install complete\n')
-    return
+    return torchPerMachine({ dir, env: plan.env })
+  }
+
+  if (torch.kind === 'per-machine') {
+    // Inexact: torch is not in the lock, so an exact sync would remove the one
+    // installed for this machine (and its dependencies) on every upgrade.
+    onProgress?.('[env-setup] running uv sync (as locked, keeping the per-machine torch)\n')
+    await runUv(projectDir, envDir, buildSyncArgs(projectArgs, extras, [], true),
+      appVersion, onProgress)
+    for (const memberWheel of memberWheels) {
+      await installAppWheel(projectDir, envDir, memberWheel, onProgress)
+    }
+    if (wheel) await installAppWheel(projectDir, envDir, wheel, onProgress)
+    return torchPerMachine(null)
   }
 
   const twoStep =
     (process.platform === 'win32' || process.platform === 'linux') &&
-    readLockedTorchVersion(projectDir) !== null
+    torch.kind === 'locked'
 
   if (twoStep) {
     try {
       onProgress?.('[env-setup] two-step install: uv sync (lock-exact, torch deferred) '
-        + 'then torch via --torch-backend=auto\n')
+        + 'then torch for this machine\n')
       // Step 1: every DEPENDENCY except torch, exactly as locked. torch is the
       // only torch-family package in the lock, so one exclusion covers it.
       await runUv(
@@ -882,7 +1217,7 @@ async function setupEnv(o: {
       }
       if (wheel) await installAppWheel(projectDir, envDir, wheel, onProgress)
       onProgress?.('[env-setup] per-machine torch install complete\n')
-      return
+      return true
     } catch (err) {
       onProgress?.(`[env-setup] per-machine torch install failed (${(err as Error)?.message ?? err}); `
         + 'falling back to the full locked sync\n')
@@ -896,4 +1231,5 @@ async function setupEnv(o: {
     await installAppWheel(projectDir, envDir, memberWheel, onProgress)
   }
   if (wheel) await installAppWheel(projectDir, envDir, wheel, onProgress)
+  return true
 }

@@ -61,6 +61,11 @@ export function parseUvLine(raw: string): EnvProgressEvent | null {
     if (/two-step|full locked|uv sync|deferred/i.test(msg)) {
       return { phase: 'resolving', step: 'Preparing the analysis environment', percent: null }
     }
+    // A torch line that is not the install itself (checking, keeping, why it
+    // failed) is news for the operator: show it as written.
+    if (/torch/i.test(msg) && !/^installing\b|install complete/i.test(msg)) {
+      return { phase: 'torch', step: capitalize(msg), percent: null }
+    }
     if (/torch/i.test(msg)) {
       return { phase: 'torch', step: 'Installing PyTorch for your GPU', percent: null }
     }

@@ -170,6 +170,38 @@ needs lives in `shell/packaging/`.
 installed when `nvidia-smi` finds a device. `<APPID>_GPU=0|1` overrides the
 probe either way.
 
+**torch.** A lock holds one torch build, and which build a machine needs
+depends on its GPU. Setup tells three cases apart from the lock, and the setup
+window shows the PyTorch step for the last two only:
+
+* *No torch* (Ground Crew): an exact `uv sync`, as for any app.
+* *Locked* (SpyDE): the lock pins torch. On Windows and Linux, setup syncs
+  everything else exactly, then installs that release with
+  `--torch-backend=auto`.
+* *Per machine* (Autopilot): name torch as a dependency and leave it out of
+  the lock with `[tool.uv] exclude-dependencies = ["torch"]`, which uv records
+  in `uv.lock`. Both are needed: torch merely absent from the lock means no
+  torch.
+  Setup syncs with `--inexact`, so a torch already installed survives an
+  upgrade. It then installs the newest torch the app's specifier allows, built
+  for this machine, but only when torch is missing, does not load, or has no
+  kernels for the GPU. A failed install is reported in the setup overlay, the
+  app starts without torch, and the next launch tries again. From a
+  wheelhouse, torch comes from the wheelhouse folder or not at all: the
+  wheelhouse builder works from the lock, so a site that needs torch offline
+  adds the torch wheels to the folder itself.
+
+**Which torch build.** Setup chooses `--torch-backend` before it downloads
+anything. uv's `auto` looks only at the driver version, so a recent driver on
+a card older than sm_70 (Pascal, Maxwell) would get a build with no kernels
+for it. Setup therefore reads the compute capability from `nvidia-smi` first:
+below 7.0 it installs cu126, the newest build that still supports those cards,
+and otherwise `auto`. `<APPID>_TORCH_BACKEND` (for example `cu126` or `cpu`)
+overrides the choice.
+
+A "Fix PyTorch" button calls `installTorchPerMachine` with `{ reinstall: true }`
+for a locked torch, or `{ upgrade: true }` per machine.
+
 **Offline sites.** Unzip the release's wheelhouse into the install
 folder (next to the app's `.exe`) or into `userData/wheelhouse`, or let the
 user choose it with "Install from a folder…" when the online install fails. The first launch then installs with no network:

@@ -221,6 +221,9 @@ export function shellReducer<S extends ShellState>(state: S, action: ShellAction
       return {
         ...state,
         envSetup: {
+          // Whether setup has a PyTorch step, and the wheelhouse it installs
+          // from, outlive every progress line (#44).
+          ...prev,
           phase: action.phase ?? prev.phase,
           step: action.step ?? prev.step,
           percent: action.percent,
